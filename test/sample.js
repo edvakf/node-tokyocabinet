@@ -1,3 +1,6 @@
+// sample codes at http://1978th.net/tokyocabinet/spex-en.html
+// translated into JS.
+
 var sys = require('sys');
 var TC = require('../build/default/tokyocabinet');
 
@@ -79,7 +82,7 @@ var TC = require('../build/default/tokyocabinet');
   }
 
   if (!bdb.vanish()) {
-    sys.error(hdb.errmsg());
+    sys.error(bdb.errmsg());
   }
 
   if (!bdb.close()) {
@@ -121,7 +124,7 @@ var TC = require('../build/default/tokyocabinet');
   }
 
   if (!fdb.vanish()) {
-    sys.error(hdb.errmsg());
+    sys.error(fdb.errmsg());
   }
 
   if (!fdb.close()) {
@@ -180,11 +183,11 @@ var TC = require('../build/default/tokyocabinet');
   });
 
   if (!tdb.vanish()) {
-    sys.error(hdb.errmsg());
+    sys.error(tdb.errmsg());
   }
 
   if (!tdb.close()) {
-    sys.error(fdb.errmsg());
+    sys.error(tdb.errmsg());
   }
 }());
 
@@ -229,3 +232,5 @@ var TC = require('../build/default/tokyocabinet');
     sys.error("close error");
   }
 }());
+
+
