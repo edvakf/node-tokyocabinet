@@ -438,7 +438,6 @@ class HDB : ObjectWrap {
     Addint (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
@@ -454,7 +453,6 @@ class HDB : ObjectWrap {
     Adddouble (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
@@ -949,7 +947,6 @@ class BDB : ObjectWrap {
     Addint (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
@@ -965,7 +962,6 @@ class BDB : ObjectWrap {
     Adddouble (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
@@ -2480,7 +2476,6 @@ class ADB : ObjectWrap {
     Addint (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
@@ -2496,7 +2491,6 @@ class ADB : ObjectWrap {
     Adddouble (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !ARG0->IsString() ||
           !ARG1->IsNumber()) {
         return THROW_BAD_ARGS;
       }
