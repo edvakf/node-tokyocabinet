@@ -8,5 +8,5 @@ So far only implemented interfaces defined in tokyocabinet.idl.
 
 === License ===
 The MIT License
-Copyright (c) 2010 Atsushi Takayama <taka.atsushi@gmail.com>
+Copyright (c) 2010 Atsushi Takayama <taka.atsushi (a) gmail.com>
 
