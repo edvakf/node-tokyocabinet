@@ -2,6 +2,13 @@
 Tokyo Cabinet binding for Node.js.
 So far only implemented interfaces defined in tokyocabinet.idl.
 
+= Install
+- Install node.js <http://github.com/ry/node>
+- Install Tokyo Cabinet <http://1978th.net/tokyocabinet/>
+- Download node-tokyocabinet and do;
+
+ $ node-waf configure build
+
 = ToDo
 - Write async interface.
 - More tests.

@@ -14,5 +14,4 @@ def build(bld):
   obj.target = "tokyocabinet"
   obj.source = "src/tokyocabinet.cc"
   obj.includes = [".", "/usr/local/include/node"]
-  obj.libpath = ["/usr/local/lib"]
   obj.lib = ["tokyocabinet"]
