@@ -3,6 +3,7 @@
 
 var sys = require('sys');
 var TC = require('../build/default/tokyocabinet');
+var fs = require('fs');
 
 (function() {
   sys.puts("== Sample: HDB ==");
@@ -36,13 +37,11 @@ var TC = require('../build/default/tokyocabinet');
     }
   }
 
-  if (!hdb.vanish()) {
-    sys.error(hdb.errmsg());
-  }
-
   if (!hdb.close()) {
     sys.error(hdb.errmsg());
   }
+
+  fs.unlink('casket.tch');
 }());
 
 (function() {
@@ -81,13 +80,11 @@ var TC = require('../build/default/tokyocabinet');
     cur.next();
   }
 
-  if (!bdb.vanish()) {
-    sys.error(bdb.errmsg());
-  }
-
   if (!bdb.close()) {
     sys.error(bdb.errmsg());
   }
+
+  fs.unlink('casket.tcb');
 }());
 
 (function() {
@@ -123,13 +120,11 @@ var TC = require('../build/default/tokyocabinet');
     }
   }
 
-  if (!fdb.vanish()) {
-    sys.error(fdb.errmsg());
-  }
-
   if (!fdb.close()) {
     sys.error(fdb.errmsg());
   }
+
+  fs.unlink('casket.tcf');
 }());
 
 (function() {
@@ -182,13 +177,11 @@ var TC = require('../build/default/tokyocabinet');
     }
   });
 
-  if (!tdb.vanish()) {
-    sys.error(tdb.errmsg());
-  }
-
   if (!tdb.close()) {
     sys.error(tdb.errmsg());
   }
+
+  fs.unlink('casket.tct');
 }());
 
 (function() {
@@ -224,13 +217,10 @@ var TC = require('../build/default/tokyocabinet');
     }
   }
 
-  if (!adb.vanish()) {
-    sys.error("vanish error");
-  }
-
   if (!adb.close()) {
     sys.error("close error");
   }
-}());
 
+  fs.unlink('casket.tcb');
+}());
 
