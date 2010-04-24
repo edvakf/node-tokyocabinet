@@ -13,5 +13,6 @@ def build(bld):
   obj = bld.new_task_gen("cxx", "shlib", "node_addon")
   obj.target = "tokyocabinet"
   obj.source = "src/tokyocabinet.cc"
-  obj.includes = [".", "/usr/local/include/node"]
+  obj.includes = ["."]
+  obj.defines = "__STDC_LIMIT_MACROS"
   obj.lib = ["tokyocabinet"]
