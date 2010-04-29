@@ -25,8 +25,6 @@
 #define ARG3 args[3]
 #define ARG4 args[4]
 #define ARG5 args[5]
-#define ARG6 args[6]
-#define ARG7 args[7]
 
 #define VDOUBLE(obj) ((obj)->NumberValue())
 #define VINT32(obj) ((obj)->Int32Value())
@@ -117,6 +115,45 @@ inline void set_ecodes (const Handle<FunctionTemplate> tmpl) {
   DEFINE_PREFIXED_CONSTANT(tmpl, TC, EMISC);
 }
 
+class LikeArguments {
+  public:
+    LikeArguments (const Arguments &args, int argc) {
+      HandleScope scope;
+      argc_ = argc;
+      args_ = new Persistent<Value>[argc];
+      for (int i = 0; i < argc; i++) {
+        args_[i] = Persistent<Value>::New(args[i]);
+      }
+      this_ = Persistent<Object>::New(args.This());
+    }
+
+    ~LikeArguments () {
+      for (int i = 0; i < argc_; i++) {
+        args_[i].Dispose();
+      }
+      delete[] args_;
+      this_.Dispose();
+    }
+
+    Handle<Value> operator[](const int i) {
+      if (i < 0 || i >= argc_) return Undefined();
+      return args_[i];
+    }
+
+    Handle<Object> This() {
+      return this_;
+    }
+  private:
+    Persistent<Value> *args_;
+    int argc_;
+    Persistent<Object> this_;
+};
+
+struct asyncdata {
+  LikeArguments *args;
+  void *ret;
+};
+
 class HDB : ObjectWrap {
   public:
     HDB () : ObjectWrap () {
@@ -127,9 +164,14 @@ class HDB : ObjectWrap {
       tchdbdel(db);
     }
 
-    static TCHDB *
+    static HDB *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<HDB>(obj)->db;
+      return ObjectWrap::Unwrap<HDB>(obj);
+    }
+
+    static TCHDB *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->db;
     }
 
     static void
@@ -158,6 +200,8 @@ class HDB : ObjectWrap {
       NODE_SET_PROTOTYPE_METHOD(tmpl, "setxmsiz", Setxmsiz);
       NODE_SET_PROTOTYPE_METHOD(tmpl, "setdfunit", Setdfunit);
       NODE_SET_PROTOTYPE_METHOD(tmpl, "open", Open);
+      // async
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "openAsync", OpenAsync);
       NODE_SET_PROTOTYPE_METHOD(tmpl, "close", Close);
       NODE_SET_PROTOTYPE_METHOD(tmpl, "put", Put);
       NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeep", Putkeep);
@@ -191,6 +235,7 @@ class HDB : ObjectWrap {
     static Handle<Value>
     New (const Arguments& args) {
       HandleScope scope;
+      if (!args.IsConstructCall()) return args.Callee()->NewInstance();
       (new HDB)->Wrap(THIS);
       return THIS;
     }
@@ -202,14 +247,14 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       const char *msg = tchdberrmsg(
-          NOU(ARG0) ? tchdbecode(Unwrap(THIS)) : VINT32(ARG0));
+          NOU(ARG0) ? tchdbecode(Backend(THIS)) : VINT32(ARG0));
       return String::New(msg);
     }
 
     static Handle<Value>
     Ecode (const Arguments& args) {
       HandleScope scope;
-      int ecode = tchdbecode(Unwrap(THIS));
+      int ecode = tchdbecode(Backend(THIS));
       return Integer::New(ecode);
     }
 
@@ -223,7 +268,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbtune(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT32(ARG2),
@@ -238,7 +283,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetcache(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
@@ -250,7 +295,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetxmsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0));
       return Boolean::New(success);
     }
@@ -262,7 +307,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetdfunit(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
@@ -274,17 +319,64 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbopen(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           NOU(ARG1) ? HDBOREADER : VINT32(ARG1));
       return Boolean::New(success);
     }
 
     static Handle<Value>
+    OpenAsync (const Arguments& args) {
+      HandleScope scope;
+      if (!ARG0->IsString()) {
+        return THROW_BAD_ARGS;
+      }
+      asyncdata *data = new asyncdata;
+      data->args = new LikeArguments(args, 3);
+      Unwrap(THIS)->Ref();
+      eio_custom(ExecOpen, EIO_PRI_DEFAULT, AfterOpen, data);
+      return Undefined();
+    }
+
+    static int
+    ExecOpen (eio_req *req) {
+      HandleScope scope;
+      asyncdata *data = static_cast<asyncdata *>(req->data);
+      LikeArguments &args = *(data->args);
+      bool success = tchdbopen(
+          Backend(THIS),
+          VSTRPTR(ARG0),
+          NOU(ARG1) ? HDBOREADER : VINT32(ARG1));
+      req->result = tchdbecode(Backend(THIS));
+      return 0;
+    }
+
+    static int
+    AfterOpen (eio_req *req) {
+      HandleScope scope;
+      asyncdata *data = static_cast<asyncdata *>(req->data);
+      LikeArguments &args = *(data->args);
+      if (ARG2->IsFunction()) {
+        Local<Value> ret[1];
+        ret[0] = Integer::New(req->result);
+        TryCatch try_catch;
+        Handle<Function>::Cast(ARG2)->Call(
+            Context::GetCurrent()->Global(), 1, ret);
+        if (try_catch.HasCaught()) {
+          FatalException(try_catch);
+        }
+      }
+      Unwrap(THIS)->Unref();
+      delete data->args;
+      delete data;
+      return 0;
+    }
+
+    static Handle<Value>
     Close (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbclose(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -295,7 +387,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbput(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -310,7 +402,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputkeep(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -325,7 +417,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputcat(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -340,7 +432,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputasync(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -355,7 +447,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbout(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -369,7 +461,7 @@ class HDB : ObjectWrap {
       }
       int vsiz;
       char *vstr = static_cast<char *>(tchdbget(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           &vsiz));
@@ -389,7 +481,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int vsiz = tchdbvsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(vsiz);
@@ -399,7 +491,7 @@ class HDB : ObjectWrap {
     Iterinit (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbiterinit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -407,7 +499,7 @@ class HDB : ObjectWrap {
     Iternext (const Arguments& args) {
       HandleScope scope;
       char *vstr = tchdbiternext2(
-          Unwrap(THIS));
+          Backend(THIS));
       if (vstr == NULL) {
         return Null();
       } else {
@@ -425,7 +517,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *fwmkeys = tchdbfwmkeys(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
@@ -442,7 +534,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int sum = tchdbaddint(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VINT32(ARG1));
@@ -457,7 +549,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       double sum = tchdbadddouble(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VDOUBLE(ARG1));
@@ -468,7 +560,7 @@ class HDB : ObjectWrap {
     Sync (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbsync(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -482,7 +574,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tchdboptimize(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT32(ARG2),
@@ -494,7 +586,7 @@ class HDB : ObjectWrap {
     Vanish (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbvanish(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -506,7 +598,7 @@ class HDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int success = tchdbcopy(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -515,7 +607,7 @@ class HDB : ObjectWrap {
     Tranbegin (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbtranbegin(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -523,7 +615,7 @@ class HDB : ObjectWrap {
     Trancommit (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbtrancommit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -531,7 +623,7 @@ class HDB : ObjectWrap {
     Tranabort (const Arguments& args) {
       HandleScope scope;
       bool success = tchdbtranabort(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -539,7 +631,7 @@ class HDB : ObjectWrap {
     Path (const Arguments& args) {
       HandleScope scope;
       const char *path = tchdbpath(
-          Unwrap(THIS));
+          Backend(THIS));
       return path == NULL ? Null() : String::New(path);
     }
 
@@ -547,7 +639,7 @@ class HDB : ObjectWrap {
     Rnum (const Arguments& args) {
       HandleScope scope;
       int64_t num = tchdbrnum(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(num);
     }
 
@@ -555,7 +647,7 @@ class HDB : ObjectWrap {
     Fsiz (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tchdbfsiz(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 };
@@ -572,9 +664,14 @@ class BDB : ObjectWrap {
       tcbdbdel(db);
     }
 
-    static TCBDB *
+    static BDB *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<BDB>(obj)->db;
+      return ObjectWrap::Unwrap<BDB>(obj);
+    }
+
+    static TCBDB *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->db;
     }
 
     static void
@@ -649,7 +746,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       const char *msg = tchdberrmsg(
-          NOU(ARG0) ? tcbdbecode(Unwrap(THIS)) : VINT32(ARG0));
+          NOU(ARG0) ? tcbdbecode(Backend(THIS)) : VINT32(ARG0));
       return String::New(msg);
     }
 
@@ -657,7 +754,7 @@ class BDB : ObjectWrap {
     Ecode (const Arguments& args) {
       HandleScope scope;
       int ecode = tcbdbecode(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(ecode);
     }
 
@@ -673,7 +770,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbtune(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT64(ARG2),
@@ -691,7 +788,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbsetcache(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
       return Boolean::New(success);
@@ -704,7 +801,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbsetxmsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0));
       return Boolean::New(success);
     }
@@ -716,7 +813,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbsetdfunit(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
@@ -728,7 +825,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbopen(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           NOU(ARG1) ? BDBOREADER : VINT32(ARG1));
       return Boolean::New(success);
@@ -737,7 +834,7 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Close (const Arguments& args) {
       HandleScope scope;
-      bool success = tcbdbclose(Unwrap(THIS));
+      bool success = tcbdbclose(Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -748,7 +845,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbput(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -763,7 +860,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbputkeep(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -778,7 +875,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbputcat(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -793,7 +890,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbputdup(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -810,7 +907,7 @@ class BDB : ObjectWrap {
       }
       TCLIST *list = arytotclist(Local<Array>::Cast(ARG1));
       bool success = tcbdbputdup3(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           list);
@@ -825,7 +922,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbout(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -838,7 +935,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbout3(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -852,7 +949,7 @@ class BDB : ObjectWrap {
       }
       int vsiz;
       const char *vstr = static_cast<const char *>(tcbdbget3(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           &vsiz));
@@ -871,7 +968,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *list = tcbdbget4(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       if (list == NULL) {
@@ -890,7 +987,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int num = tcbdbvnum(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(num);
@@ -903,7 +1000,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int vsiz = tcbdbvsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(vsiz);
@@ -913,7 +1010,7 @@ class BDB : ObjectWrap {
     Range (const Arguments& args) {
       HandleScope scope;
       TCLIST *list = tcbdbrange(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? NULL : VSTRPTR(ARG0),
           NOU(ARG0) ? -1 : VSTRSIZ(ARG0),
           NOU(ARG1) ? false : VBOOL(ARG1),
@@ -934,7 +1031,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *fwmkeys = tcbdbfwmkeys(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
@@ -951,7 +1048,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int sum = tcbdbaddint(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VINT32(ARG1));
@@ -966,7 +1063,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       double sum = tcbdbadddouble(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VDOUBLE(ARG1));
@@ -977,7 +1074,7 @@ class BDB : ObjectWrap {
     Sync (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbsync(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -993,7 +1090,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbtune(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT64(ARG2),
@@ -1007,7 +1104,7 @@ class BDB : ObjectWrap {
     Vanish (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbvanish(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1019,7 +1116,7 @@ class BDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int success = tcbdbcopy(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -1028,7 +1125,7 @@ class BDB : ObjectWrap {
     Tranbegin (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbtranbegin(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1036,7 +1133,7 @@ class BDB : ObjectWrap {
     Trancommit (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbtrancommit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1044,7 +1141,7 @@ class BDB : ObjectWrap {
     Tranabort (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbtranabort(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1052,7 +1149,7 @@ class BDB : ObjectWrap {
     Path (const Arguments& args) {
       HandleScope scope;
       const char *path = tcbdbpath(
-          Unwrap(THIS));
+          Backend(THIS));
       return path == NULL ? Null() : String::New(path);
     }
 
@@ -1060,7 +1157,7 @@ class BDB : ObjectWrap {
     Rnum (const Arguments& args) {
       HandleScope scope;
       int64_t num = tcbdbrnum(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(num);
     }
 
@@ -1068,7 +1165,7 @@ class BDB : ObjectWrap {
     Fsiz (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tcbdbfsiz(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 };
@@ -1086,9 +1183,14 @@ class CUR : ObjectWrap {
       tcbdbcurdel(cur);
     }
 
-    static BDBCUR *
+    static CUR *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<CUR>(obj)->cur;
+      return ObjectWrap::Unwrap<CUR>(obj);
+    }
+
+    static BDBCUR *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->cur;
     }
 
     static void
@@ -1126,7 +1228,7 @@ class CUR : ObjectWrap {
           !BDB::Tmpl->HasInstance(ARG0)) {
         return THROW_BAD_ARGS;
       }
-      TCBDB *db = BDB::Unwrap(Local<Object>::Cast(ARG0));
+      TCBDB *db = BDB::Backend(Local<Object>::Cast(ARG0));
       (new CUR(db))->Wrap(THIS);
       return THIS;
     }
@@ -1135,7 +1237,7 @@ class CUR : ObjectWrap {
     First (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbcurfirst(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1143,7 +1245,7 @@ class CUR : ObjectWrap {
     Last (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbcurlast(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1154,7 +1256,7 @@ class CUR : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbcurjump(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -1164,7 +1266,7 @@ class CUR : ObjectWrap {
     Prev (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbcurprev(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1172,7 +1274,7 @@ class CUR : ObjectWrap {
     Next (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbcurnext(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1184,7 +1286,7 @@ class CUR : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbcurput(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG1) ? BDBCPCURRENT : VINT32(ARG1));
@@ -1195,7 +1297,7 @@ class CUR : ObjectWrap {
     Out (const Arguments& args) {
       HandleScope scope;
       bool success = tcbdbcurout(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1204,7 +1306,7 @@ class CUR : ObjectWrap {
       HandleScope scope;
       int ksiz;
       char *key = static_cast<char *>(tcbdbcurkey(
-          Unwrap(THIS),
+          Backend(THIS),
           &ksiz));
       if (key == NULL) {
         return Null();
@@ -1220,7 +1322,7 @@ class CUR : ObjectWrap {
       HandleScope scope;
       int vsiz;
       char *val = static_cast<char *>(tcbdbcurval(
-          Unwrap(THIS),
+          Backend(THIS),
           &vsiz));
       if (val == NULL) {
         return Null();
@@ -1242,9 +1344,14 @@ class FDB : ObjectWrap {
       tcfdbdel(db);
     }
 
-    static TCFDB *
+    static FDB *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<FDB>(obj)->db;
+      return ObjectWrap::Unwrap<FDB>(obj);
+    }
+
+    static TCFDB *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->db;
     }
 
     static void
@@ -1309,7 +1416,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       const char *msg = tcfdberrmsg(
-          NOU(ARG0) ? tcfdbecode(Unwrap(THIS)) : VINT32(ARG0));
+          NOU(ARG0) ? tcfdbecode(Backend(THIS)) : VINT32(ARG0));
       return String::New(msg);
     }
 
@@ -1317,7 +1424,7 @@ class FDB : ObjectWrap {
     Ecode (const Arguments& args) {
       HandleScope scope;
       int ecode = tcfdbecode(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(ecode);
     }
 
@@ -1329,7 +1436,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbtune(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT64(ARG1));
       return Boolean::New(success);
@@ -1342,7 +1449,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbopen(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           NOU(ARG1) ? FDBOREADER : VINT32(ARG1));
       return Boolean::New(success);
@@ -1351,7 +1458,7 @@ class FDB : ObjectWrap {
     static Handle<Value>
     Close (const Arguments& args) {
       HandleScope scope;
-      bool success = tcfdbclose(Unwrap(THIS));
+      bool success = tcfdbclose(Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1362,7 +1469,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbput2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -1377,7 +1484,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbputkeep2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -1392,7 +1499,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbputcat2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -1407,7 +1514,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdbout2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -1421,7 +1528,7 @@ class FDB : ObjectWrap {
       }
       int vsiz;
       char *vstr = static_cast<char *>(tcfdbget2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           &vsiz));
@@ -1441,7 +1548,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int vsiz = tcfdbvsiz2(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(vsiz);
@@ -1451,7 +1558,7 @@ class FDB : ObjectWrap {
     Iterinit (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbiterinit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1460,7 +1567,7 @@ class FDB : ObjectWrap {
       HandleScope scope;
       int vsiz;
       char *vstr = static_cast<char *>(tcfdbiternext2(
-          Unwrap(THIS),
+          Backend(THIS),
           &vsiz));
       if (vstr == NULL) {
         return Null();
@@ -1479,7 +1586,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *list = tcfdbrange4(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG2) ? -1 : VINT32(ARG2));
@@ -1496,7 +1603,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int sum = tcfdbaddint(
-          Unwrap(THIS),
+          Backend(THIS),
           tcfdbkeytoid(VSTRPTR(ARG0), VSTRSIZ(ARG0)),
           VINT32(ARG1));
       return sum == INT_MIN ? Null() : Integer::New(sum);
@@ -1510,7 +1617,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       double sum = tcfdbadddouble(
-          Unwrap(THIS),
+          Backend(THIS),
           tcfdbkeytoid(VSTRPTR(ARG0), VSTRSIZ(ARG0)),
           VDOUBLE(ARG1));
       return isnan(sum) ? Null() : Number::New(sum);
@@ -1520,7 +1627,7 @@ class FDB : ObjectWrap {
     Sync (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbsync(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1532,7 +1639,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcfdboptimize(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT64(ARG1));
       return Boolean::New(success);
@@ -1542,7 +1649,7 @@ class FDB : ObjectWrap {
     Vanish (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbvanish(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1554,7 +1661,7 @@ class FDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int success = tcfdbcopy(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -1563,7 +1670,7 @@ class FDB : ObjectWrap {
     Tranbegin (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbtranbegin(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1571,7 +1678,7 @@ class FDB : ObjectWrap {
     Trancommit (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbtrancommit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1579,7 +1686,7 @@ class FDB : ObjectWrap {
     Tranabort (const Arguments& args) {
       HandleScope scope;
       bool success = tcfdbtranabort(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1587,7 +1694,7 @@ class FDB : ObjectWrap {
     Path (const Arguments& args) {
       HandleScope scope;
       const char *path = tcfdbpath(
-          Unwrap(THIS));
+          Backend(THIS));
       return path == NULL ? Null() : String::New(path);
     }
 
@@ -1595,7 +1702,7 @@ class FDB : ObjectWrap {
     Rnum (const Arguments& args) {
       HandleScope scope;
       int64_t num = tcfdbrnum(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(num);
     }
 
@@ -1603,7 +1710,7 @@ class FDB : ObjectWrap {
     Fsiz (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tcfdbfsiz(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 };
@@ -1620,9 +1727,14 @@ class TDB : ObjectWrap {
       tctdbdel(db);
     }
 
-    static TCTDB *
+    static TDB *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<TDB>(obj)->db;
+      return ObjectWrap::Unwrap<TDB>(obj);
+    }
+
+    static TCTDB *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->db;
     }
 
     static void
@@ -1702,7 +1814,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       const char *msg = tctdberrmsg(
-          NOU(ARG0) ? tctdbecode(Unwrap(THIS)) : VINT32(ARG0));
+          NOU(ARG0) ? tctdbecode(Backend(THIS)) : VINT32(ARG0));
       return String::New(msg);
     }
 
@@ -1710,7 +1822,7 @@ class TDB : ObjectWrap {
     Ecode (const Arguments& args) {
       HandleScope scope;
       int ecode = tctdbecode(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(ecode);
     }
 
@@ -1724,7 +1836,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbtune(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT32(ARG2),
@@ -1742,7 +1854,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbsetcache(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT32(ARG2));
@@ -1756,7 +1868,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbsetxmsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0));
       return Boolean::New(success);
     }
@@ -1768,7 +1880,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbsetdfunit(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
@@ -1780,7 +1892,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbopen(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           NOU(ARG1) ? TDBOREADER : VINT32(ARG1));
       return Boolean::New(success);
@@ -1789,7 +1901,7 @@ class TDB : ObjectWrap {
     static Handle<Value>
     Close (const Arguments& args) {
       HandleScope scope;
-      bool success = tctdbclose(Unwrap(THIS));
+      bool success = tctdbclose(Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1802,7 +1914,7 @@ class TDB : ObjectWrap {
       }
       TCMAP *map = objtotcmap(Handle<Object>::Cast(ARG1));
       bool success = tctdbput(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           map);
@@ -1819,7 +1931,7 @@ class TDB : ObjectWrap {
       }
       TCMAP *map = objtotcmap(Handle<Object>::Cast(ARG1));
       bool success = tctdbputkeep(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           map);
@@ -1836,7 +1948,7 @@ class TDB : ObjectWrap {
       }
       TCMAP *map = objtotcmap(Handle<Object>::Cast(ARG1));
       bool success = tctdbputcat(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           map);
@@ -1851,7 +1963,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbout(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -1864,7 +1976,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCMAP *map = tctdbget(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       if (map == NULL) {
@@ -1883,7 +1995,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int vsiz = tctdbvsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(vsiz);
@@ -1893,7 +2005,7 @@ class TDB : ObjectWrap {
     Iterinit (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbiterinit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1902,7 +2014,7 @@ class TDB : ObjectWrap {
       HandleScope scope;
       int vsiz;
       char *vstr = static_cast<char *>(tctdbiternext(
-          Unwrap(THIS),
+          Backend(THIS),
           &vsiz));
       if (vstr == NULL) {
         return Null();
@@ -1921,7 +2033,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *fwmkeys = tctdbfwmkeys(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
@@ -1938,7 +2050,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int sum = tctdbaddint(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VINT32(ARG1));
@@ -1953,7 +2065,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       double sum = tctdbadddouble(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VDOUBLE(ARG1));
@@ -1964,7 +2076,7 @@ class TDB : ObjectWrap {
     Sync (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbsync(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -1978,7 +2090,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdboptimize(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? -1 : VINT64(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1),
           NOU(ARG2) ? -1 : VINT32(ARG2),
@@ -1990,7 +2102,7 @@ class TDB : ObjectWrap {
     Vanish (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbvanish(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2002,7 +2114,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int success = tctdbcopy(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -2011,7 +2123,7 @@ class TDB : ObjectWrap {
     Tranbegin (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbtranbegin(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2019,7 +2131,7 @@ class TDB : ObjectWrap {
     Trancommit (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbtrancommit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2027,7 +2139,7 @@ class TDB : ObjectWrap {
     Tranabort (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbtranabort(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2035,7 +2147,7 @@ class TDB : ObjectWrap {
     Path (const Arguments& args) {
       HandleScope scope;
       const char *path = tctdbpath(
-          Unwrap(THIS));
+          Backend(THIS));
       return path == NULL ? Null() : String::New(path);
     }
 
@@ -2043,7 +2155,7 @@ class TDB : ObjectWrap {
     Rnum (const Arguments& args) {
       HandleScope scope;
       int64_t num = tctdbrnum(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(num);
     }
 
@@ -2051,7 +2163,7 @@ class TDB : ObjectWrap {
     Fsiz (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tctdbfsiz(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 
@@ -2063,7 +2175,7 @@ class TDB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tctdbsetindex(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VINT32(ARG1));
       return Boolean::New(success);
@@ -2073,7 +2185,7 @@ class TDB : ObjectWrap {
     Genuid (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tctdbgenuid(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 };
@@ -2091,9 +2203,14 @@ class QRY : ObjectWrap {
       tctdbqrydel(qry);
     }
 
-    static TDBQRY *
+    static QRY *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<QRY>(obj)->qry;
+      return ObjectWrap::Unwrap<QRY>(obj);
+    }
+
+    static TDBQRY *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->qry;
     }
 
     static void
@@ -2158,7 +2275,7 @@ class QRY : ObjectWrap {
           !TDB::Tmpl->HasInstance(ARG0)) {
         return THROW_BAD_ARGS;
       }
-      TCTDB *db = TDB::Unwrap(Local<Object>::Cast(ARG0));
+      TCTDB *db = TDB::Backend(Local<Object>::Cast(ARG0));
       (new QRY(db))->Wrap(THIS);
       return THIS;
     }
@@ -2171,7 +2288,7 @@ class QRY : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       tctdbqryaddcond(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VINT32(ARG1),
           VSTRPTR(ARG2));
@@ -2186,7 +2303,7 @@ class QRY : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       tctdbqrysetorder(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           NOU(ARG1) ? TDBQOSTRASC : VINT32(ARG1));
       return Undefined();
@@ -2200,7 +2317,7 @@ class QRY : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       tctdbqrysetlimit(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG1) ? -1 : VINT32(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
       return Undefined();
@@ -2210,7 +2327,7 @@ class QRY : ObjectWrap {
     Search (const Arguments& args) {
       HandleScope scope;
       TCLIST *res = tctdbqrysearch(
-          Unwrap(THIS));
+          Backend(THIS));
       Local<Array> ary = tclisttoary(res);
       tclistdel(res);
       return ary;
@@ -2220,7 +2337,7 @@ class QRY : ObjectWrap {
     Searchout (const Arguments& args) {
       HandleScope scope;
       bool success = tctdbqrysearchout(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2228,7 +2345,7 @@ class QRY : ObjectWrap {
     Hint (const Arguments& args) {
       HandleScope scope;
       const char *hint = tctdbqryhint(
-          Unwrap(THIS));
+          Backend(THIS));
       return String::New(hint);
     }
 
@@ -2244,12 +2361,12 @@ class QRY : ObjectWrap {
       int num = others->Length();
       TDBQRY **qrys = static_cast<TDBQRY **>(tcmalloc(sizeof(*qrys) * (num+1)));
       int qnum = 0;
-      qrys[qnum++] = Unwrap(THIS);
+      qrys[qnum++] = Backend(THIS);
       Local<Value> oqry;
       for (int i = 0; i < num; i++) {
         oqry = others->Get(Integer::New(i));
         if (TDB::Tmpl->HasInstance(oqry)) {
-          qrys[qnum++] = Unwrap(Local<Object>::Cast(oqry));
+          qrys[qnum++] = Backend(Local<Object>::Cast(oqry));
         }
       }
       TCLIST* res = tctdbmetasearch(qrys, qnum, 
@@ -2271,9 +2388,14 @@ class ADB : ObjectWrap {
       tcadbdel(db);
     }
 
-    static TCADB *
+    static ADB *
     Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<ADB>(obj)->db;
+      return ObjectWrap::Unwrap<ADB>(obj);
+    }
+
+    static TCADB *
+    Backend (const Handle<Object> obj) {
+      return Unwrap(obj)->db;
     }
 
     static void
@@ -2328,7 +2450,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadbopen(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -2337,7 +2459,7 @@ class ADB : ObjectWrap {
     Close (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbclose(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2348,7 +2470,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadbput(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -2363,7 +2485,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadbputkeep(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -2378,7 +2500,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadbputcat(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VSTRPTR(ARG1),
@@ -2393,7 +2515,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadbout(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Boolean::New(success);
@@ -2407,7 +2529,7 @@ class ADB : ObjectWrap {
       }
       int vsiz;
       char *vstr = static_cast<char *>(tcadbget(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           &vsiz));
@@ -2427,7 +2549,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int vsiz = tcadbvsiz(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0));
       return Integer::New(vsiz);
@@ -2437,7 +2559,7 @@ class ADB : ObjectWrap {
     Iterinit (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbiterinit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2445,7 +2567,7 @@ class ADB : ObjectWrap {
     Iternext (const Arguments& args) {
       HandleScope scope;
       char *vstr = tcadbiternext2(
-          Unwrap(THIS));
+          Backend(THIS));
       if (vstr == NULL) {
         return Null();
       } else {
@@ -2463,7 +2585,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       TCLIST *fwmkeys = tcadbfwmkeys(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           NOU(ARG1) ? -1 : VINT32(ARG1));
@@ -2480,7 +2602,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int sum = tcadbaddint(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VINT32(ARG1));
@@ -2495,7 +2617,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       double sum = tcadbadddouble(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           VSTRSIZ(ARG0),
           VDOUBLE(ARG1));
@@ -2506,7 +2628,7 @@ class ADB : ObjectWrap {
     Sync (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbsync(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2517,7 +2639,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       bool success = tcadboptimize(
-          Unwrap(THIS),
+          Backend(THIS),
           NOU(ARG0) ? NULL : VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -2526,7 +2648,7 @@ class ADB : ObjectWrap {
     Vanish (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbvanish(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2538,7 +2660,7 @@ class ADB : ObjectWrap {
         return THROW_BAD_ARGS;
       }
       int success = tcadbcopy(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0));
       return Boolean::New(success);
     }
@@ -2547,7 +2669,7 @@ class ADB : ObjectWrap {
     Tranbegin (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbtranbegin(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2555,7 +2677,7 @@ class ADB : ObjectWrap {
     Trancommit (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbtrancommit(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2563,7 +2685,7 @@ class ADB : ObjectWrap {
     Tranabort (const Arguments& args) {
       HandleScope scope;
       bool success = tcadbtranabort(
-          Unwrap(THIS));
+          Backend(THIS));
       return Boolean::New(success);
     }
 
@@ -2571,7 +2693,7 @@ class ADB : ObjectWrap {
     Path (const Arguments& args) {
       HandleScope scope;
       const char *path = tcadbpath(
-          Unwrap(THIS));
+          Backend(THIS));
       return path == NULL ? Null() : String::New(path);
     }
 
@@ -2579,7 +2701,7 @@ class ADB : ObjectWrap {
     Rnum (const Arguments& args) {
       HandleScope scope;
       int64_t num = tcadbrnum(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(num);
     }
 
@@ -2587,7 +2709,7 @@ class ADB : ObjectWrap {
     Size (const Arguments& args) {
       HandleScope scope;
       int64_t siz = tcadbsize(
-          Unwrap(THIS));
+          Backend(THIS));
       return Integer::New(siz);
     }
 
@@ -2602,7 +2724,7 @@ class ADB : ObjectWrap {
       TCLIST *targs = NOU(ARG1) ? tclistnew2(1) 
         : arytotclist(Local<Array>::Cast(ARG1));
       TCLIST *res = tcadbmisc(
-          Unwrap(THIS),
+          Backend(THIS),
           VSTRPTR(ARG0),
           targs);
       tclistdel(targs);
@@ -2626,5 +2748,6 @@ init (Handle<Object> target) {
   TDB::Initialize(target);
   QRY::Initialize(target);
   ADB::Initialize(target);
+  target->Set(String::NewSymbol("VERSION"), String::New(tcversion));
 }
 
