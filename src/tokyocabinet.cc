@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <iostream>
 
 #define THROW_BAD_ARGS \
   ThrowException(Exception::TypeError(String::New("Bad arguments")))
@@ -30,8 +29,8 @@
 #define VDOUBLE(obj) ((obj)->NumberValue())
 #define VINT32(obj) ((obj)->Int32Value())
 #define VINT64(obj) ((obj)->IntegerValue())
-#define VSTRPTR(obj) (*String::Utf8Value((obj)->ToString()))
-#define VSTRSIZ(obj) ((obj)->ToString()->Utf8Length())
+#define VSTRPTR(obj) (*String::Utf8Value(obj))
+#define VSTRSIZ(obj) (String::Utf8Value(obj).length())
 #define VBOOL(obj) ((obj)->BooleanValue())
 // null or undefined
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
@@ -355,6 +354,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecOpen, EIO_PRI_DEFAULT, AfterOpen, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -374,6 +374,7 @@ class HDB : ObjectWrap {
     static int
     AfterOpen (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG2->IsFunction()) {
@@ -407,6 +408,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecClose, EIO_PRI_DEFAULT, AfterClose, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -424,6 +426,7 @@ class HDB : ObjectWrap {
     static int
     AfterClose (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -460,7 +463,6 @@ class HDB : ObjectWrap {
     static Handle<Value>
     PutAsync (const Arguments& args) {
       HandleScope scope;
-      std::cout << "PutAsync:\t" << VSTRPTR(ARG0) << "\n";
       if (args.Length() < 2) {
         return THROW_BAD_ARGS;
       }
@@ -468,6 +470,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecPut, EIO_PRI_DEFAULT, AfterPut, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -476,7 +479,6 @@ class HDB : ObjectWrap {
       HandleScope scope;
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
-      std::cout << "ExecPut:\t" << VSTRPTR(ARG0) << "\n";
       bool success = tchdbput(
           Backend(THIS),
           VSTRPTR(ARG0),
@@ -490,9 +492,9 @@ class HDB : ObjectWrap {
     static int
     AfterPut (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
-      std::cout << "AfterPut:\t" << VSTRPTR(ARG0) << "\n";
       if (ARG2->IsFunction()) {
         Handle<Value> ret[1];
         ret[0] = Integer::New(req->result);
@@ -534,6 +536,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecPutkeep, EIO_PRI_DEFAULT, AfterPutkeep, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -555,6 +558,7 @@ class HDB : ObjectWrap {
     static int
     AfterPutkeep (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG2->IsFunction()) {
@@ -598,6 +602,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecPutcat, EIO_PRI_DEFAULT, AfterPutcat, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -619,6 +624,7 @@ class HDB : ObjectWrap {
     static int
     AfterPutcat (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG2->IsFunction()) {
@@ -662,6 +668,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecPutasync, EIO_PRI_DEFAULT, AfterPutasync, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -683,6 +690,7 @@ class HDB : ObjectWrap {
     static int
     AfterPutasync (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG2->IsFunction()) {
@@ -724,6 +732,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 2);
       Unwrap(THIS)->Ref();
       eio_custom(ExecOut, EIO_PRI_DEFAULT, AfterOut, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -743,6 +752,7 @@ class HDB : ObjectWrap {
     static int
     AfterOut (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG1->IsFunction()) {
@@ -792,6 +802,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 2);
       Unwrap(THIS)->Ref();
       eio_custom(ExecGet, EIO_PRI_DEFAULT, AfterGet, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -814,6 +825,7 @@ class HDB : ObjectWrap {
     static int
     AfterGet (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       char *vstr = static_cast<char *>(data->ret);
@@ -858,6 +870,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 2);
       Unwrap(THIS)->Ref();
       eio_custom(ExecVsiz, EIO_PRI_DEFAULT, AfterVsiz, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -878,6 +891,7 @@ class HDB : ObjectWrap {
     static int
     AfterVsiz (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       int *vsiz = static_cast<int *>(data->ret);
@@ -914,6 +928,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecIterinit, EIO_PRI_DEFAULT, AfterIterinit, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -931,6 +946,7 @@ class HDB : ObjectWrap {
     static int
     AfterIterinit (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -973,6 +989,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 2);
       Unwrap(THIS)->Ref();
       eio_custom(ExecIternext, EIO_PRI_DEFAULT, AfterIternext, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -991,6 +1008,7 @@ class HDB : ObjectWrap {
     static int
     AfterIternext (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       char *vstr = static_cast<char *>(data->ret);
@@ -1040,6 +1058,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecFwmkeys, EIO_PRI_DEFAULT, AfterFwmkeys, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1061,6 +1080,7 @@ class HDB : ObjectWrap {
     static int
     AfterFwmkeys (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       TCLIST *keys = static_cast<TCLIST *>(data->ret);
@@ -1108,6 +1128,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecAddint, EIO_PRI_DEFAULT, AfterAddint, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1129,6 +1150,7 @@ class HDB : ObjectWrap {
     static int
     AfterAddint (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       int *sum = static_cast<int *>(data->ret);
@@ -1176,6 +1198,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 3);
       Unwrap(THIS)->Ref();
       eio_custom(ExecAdddouble, EIO_PRI_DEFAULT, AfterAdddouble, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1197,6 +1220,7 @@ class HDB : ObjectWrap {
     static int
     AfterAdddouble (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       double *sum = static_cast<double *>(data->ret);
@@ -1233,6 +1257,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecSync, EIO_PRI_DEFAULT, AfterSync, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1250,6 +1275,7 @@ class HDB : ObjectWrap {
     static int
     AfterSync (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -1299,6 +1325,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 5);
       Unwrap(THIS)->Ref();
       eio_custom(ExecOptimize, EIO_PRI_DEFAULT, AfterOptimize, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1320,6 +1347,7 @@ class HDB : ObjectWrap {
     static int
     AfterOptimize (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG4->IsFunction()) {
@@ -1353,6 +1381,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecVanish, EIO_PRI_DEFAULT, AfterVanish, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1370,6 +1399,7 @@ class HDB : ObjectWrap {
     static int
     AfterVanish (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -1412,6 +1442,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 2);
       Unwrap(THIS)->Ref();
       eio_custom(ExecCopy, EIO_PRI_DEFAULT, AfterCopy, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1430,6 +1461,7 @@ class HDB : ObjectWrap {
     static int
     AfterCopy (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG1->IsFunction()) {
@@ -1463,6 +1495,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecTranbegin, EIO_PRI_DEFAULT, AfterTranbegin, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1480,6 +1513,7 @@ class HDB : ObjectWrap {
     static int
     AfterTranbegin (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -1513,6 +1547,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecTrancommit, EIO_PRI_DEFAULT, AfterTrancommit, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1530,6 +1565,7 @@ class HDB : ObjectWrap {
     static int
     AfterTrancommit (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
@@ -1563,6 +1599,7 @@ class HDB : ObjectWrap {
       data->args = new LikeArguments(args, 1);
       Unwrap(THIS)->Ref();
       eio_custom(ExecTranabort, EIO_PRI_DEFAULT, AfterTranabort, data);
+      ev_ref(EV_DEFAULT_UC);
       return Undefined();
     }
 
@@ -1580,6 +1617,7 @@ class HDB : ObjectWrap {
     static int
     AfterTranabort (eio_req *req) {
       HandleScope scope;
+      ev_unref(EV_DEFAULT_UC);
       asyncdata *data = static_cast<asyncdata *>(req->data);
       LikeArguments &args = *(data->args);
       if (ARG0->IsFunction()) {
