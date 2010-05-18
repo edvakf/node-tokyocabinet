@@ -12,46 +12,74 @@ sys.puts("Tokyo Cabinet version " + TC.VERSION);
   var HDB = TC.HDB;
 
   var hdb = new HDB;
+  var success = hdb.setmutex();
+  if (!success) throw hdb.errmsg();
+  sys.puts("start");
 
   hdb.openAsync('casket.tch', HDB.OWRITER | HDB.OCREAT, function(e) {
-    sys.puts('foo');
     if (e) sys.error(hdb.errmsg(e));
+    sys.puts("opened");
 
-    var t = Date.now();
+    var N = 10;
+    var c = 0;
+    for (var i = 0; i < N; i++) {
+      ++c;
+      sys.puts("putting : foo" + i);
+      hdb.putAsync("foo" + i, "bar" + i, function(e) {
+        if (e) sys.error(hdb.errmsg(e));
+        if (--c === 0) {
+          for (var j = 0; j < N; j++) {
+            sys.puts("getting : foo" + j);
+            hdb.getAsync("foo" + j, function(e, value) {
+              if (e) sys.error(hdb.errmsg(e));
+              sys.puts("foo" + j + " : " + value);
+            });
+          }
+        }
+      });
+    }
 
+    /*
     var i = 0;
     (function doit() {
+      sys.puts("storing : foo" + i);
       hdb.putAsync("foo" + i, "bar" + i, function(e) {
-        if (e) sys.error(e);
-        if (e) sys.error(["i = ", i, " : ", hdb.errmsg(e)].join(""));
-        if (i++ === 10) {
-          hdb.getAsync("foo0", function(e, value) {
-            if (e) sys.error("foo0 :" + hdb.errmsg(e));
-            sys.puts("foo0 : " + value);
+        sys.puts("stored : foo" + i);
+        if (e) sys.error("i = " + i + " : " + hdb.errmsg(e));
+        if (i++ !== 10) return doit();
+
+        i = 0;
+        (function doit2() {
+          hdb.getAsync("foo" + i, function(e, value) {
+            if (e) sys.error("i = " + i + " : " + hdb.errmsg(e));
+            if (i++ !== 10) return doit2();
+
+            sys.puts("foo" + i + " : " + value);
           });
-        } else {
-          doit();
-        }
-        //if (i % 100 === 0) sys.puts(["i = ", i, ", elapsed time = ", Date.now() - t].join(''))
+        });
       });
     })()
 
     var j = 0;
     (function doit() {
+      sys.puts("storing : hoge" + j);
       hdb.putAsync("hoge" + j, "fuga" + j, function(e) {
-        if (e) sys.error(e);
-        if (e) sys.error(["j = ", j, " : ", hdb.errmsg(e)].join(""));
-        if (j++ === 10) {
-          hdb.getAsync("hoge0", function(e, value) {
-            if (e) sys.error("hoge0 :" + hdb.errmsg(e));
-            sys.puts("hoge0 : " + value);
+        sys.puts("stored : hoge" + j);
+        if (e) sys.error("j = " + j + " : " + hdb.errmsg(e));
+        if (j++ !== 10) return doit();
+
+        j = 0;
+        (function doit2() {
+          hdb.getAsync("hoge" + j, function(e, value) {
+            if (e) sys.error("i = " + j + " : " + hdb.errmsg(e));
+            if (j++ !== 10) return doit2();
+
+            sys.puts("hoge" + j + " : " + value);
           });
-        } else {
-          doit();
-        }
-        //if (j % 100 === 0) sys.puts(["j = ", j, ", elapsed time = ", Date.now() - t].join(''))
+        });
       });
     })()
+    */
 
     /*
     hdb.putAsync("foo", "hop", function(e) {
