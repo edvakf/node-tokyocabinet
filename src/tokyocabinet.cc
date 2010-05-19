@@ -35,6 +35,40 @@
 // null or undefined
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
 
+#define DEFINE_EXEC(func, type, actual_operation) \
+  static int Exec##func (eio_req *req) { \
+    type *data = static_cast<type *>(req->data); \
+    actual_operation ; \
+    req->result = data->getEcode(); \
+    return 0; \
+  }
+
+#define DEFINE_AFTER1(func, type) \
+  static int After##func (eio_req *req) { \
+    HandleScope scope; \
+    type *data = static_cast<type *>(req->data); \
+    if (data->hasCallback) { \
+      data->callCallback(Integer::New(req->result)); \
+    } \
+    ev_unref(EV_DEFAULT_UC); \
+    delete data; \
+    return 0; \
+  }
+
+#define DEFINE_AFTER2(func, type, second_arg) \
+  static int After##func (eio_req *req) { \
+    HandleScope scope; \
+    type *data = static_cast<type *>(req->data); \
+    if (data->hasCallback) { \
+      data->callCallback( \
+          Integer::New(req->result), \
+          second_arg); \
+    } \
+    ev_unref(EV_DEFAULT_UC); \
+    delete data; \
+    return 0; \
+  }
+
 using namespace v8;
 using namespace node;
 
@@ -42,8 +76,12 @@ inline TCLIST* arytotclist (const Handle<Array> ary) {
   HandleScope scope;
   int len = ary->Length();
   TCLIST *list = tclistnew2(len);
+  Handle<Value> val;
   for (int i = 0; i < len; i++) {
-    tclistpush2(list, VSTRPTR(ary->Get(Integer::New(i))));
+    val = ary->Get(Integer::New(i));
+    if (val->IsString()) {
+      tclistpush2(list, VSTRPTR(val));
+    }
   }
   return list;
 }
@@ -204,16 +242,16 @@ class GetDataCore : public KeyDataCore {
     }
 };
 
-class GetListDataCore : public KeyDataCore {
+class ValListDataCore : public KeyDataCore {
   public:
     TCLIST *list;
 
-    ~GetListDataCore() {
+    ~ValListDataCore() {
       tclistdel(list);
     }
 };
 
-class FwmkeysDataCore : public GetListDataCore {
+class FwmkeysDataCore : public ValListDataCore {
   public:
     int max;
 };
@@ -227,6 +265,10 @@ class AdddoubleDataCore : public KeyDataCore {
   public:
     double num;
 };
+
+
+// check arguments
+
 
 // Tokyo Cabinet
 inline void set_ecodes (const Handle<FunctionTemplate> tmpl) {
@@ -359,17 +401,40 @@ class HDB : ObjectWrap {
         HDB *hdb;
 
         void
-        setCallback(Handle<Object> This, Handle<Value> cb) {
+        setCallback (Handle<Object> This, Handle<Value> cb) {
           this->AsyncDataCore::setCallback(cb);
           hdb = Unwrap(This);
           hdb->Ref();
         }
 
         virtual
-        ~AsyncData() {
+        ~AsyncData () {
           hdb->Unref();
         }
+
+        int
+        getEcode () {
+          return tchdbecode(hdb->db);
+        }
     };
+
+    class OptimizeData : public AsyncData {
+      public:
+        int64_t bnum;
+        int8_t apow;
+        int8_t fpow;
+        uint8_t opts;
+    };
+
+    class PathData : public AsyncData, public PathDataCore {};
+    class OpenData : public AsyncData, public OpenDataCore {};
+    class PutData : public AsyncData, public PutDataCore {};
+    class OutData : public AsyncData, public KeyDataCore {};
+    class GetData : public AsyncData, public GetDataCore {};
+    class VsizData : public AsyncData, public VsizDataCore {};
+    class FwmkeysData : public AsyncData, public FwmkeysDataCore {};
+    class AddintData : public AsyncData, public AddintDataCore {};
+    class AdddoubleData : public AsyncData, public AdddoubleDataCore {};
 
     static Handle<Value>
     New (const Arguments& args) {
@@ -471,8 +536,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class OpenData : public AsyncData, public OpenDataCore {};
-
+    // <OpenAsync>
     static Handle<Value>
     OpenAsync (const Arguments& args) {
       HandleScope scope;
@@ -488,25 +552,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecOpen (eio_req *req) {
-      OpenData *data = static_cast<OpenData *>(req->data);
-      tchdbopen(data->hdb->db, **(data->path), data->omode);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Open, OpenData,
+        tchdbopen(data->hdb->db, **(data->path), data->omode))
 
-    static int
-    AfterOpen (eio_req *req) {
-      HandleScope scope;
-      OpenData *data = static_cast<OpenData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      ev_unref(EV_DEFAULT_UC);
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Open, OpenData)
+    // <\OpenAsync>
 
     static Handle<Value>
     Close (const Arguments& args) {
@@ -516,6 +566,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <CloseAsync>
     static Handle<Value>
     CloseAsync (const Arguments& args) {
       HandleScope scope;
@@ -526,25 +577,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecClose (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbclose(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Close, AsyncData, 
+        tchdbclose(data->hdb->db))
 
-    static int
-    AfterClose (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Close, AsyncData)
+    // <\CloseAsync>
 
     static Handle<Value>
     Put (const Arguments& args) {
@@ -563,8 +600,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class PutData : public AsyncData, public PutDataCore {};
-
+    // <PutAsync>
     static Handle<Value>
     PutAsync (const Arguments& args) {
       HandleScope scope;
@@ -581,27 +617,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecPut (eio_req *req) {
-      PutData *data = static_cast<PutData *>(req->data);
-      tchdbput(data->hdb->db,
+    DEFINE_EXEC (Put, PutData, 
+        tchdbput(data->hdb->db,
           **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+          **(data->vbuf), data->vsiz))
 
-    static int
-    AfterPut (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      PutData *data = static_cast<PutData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Put, PutData)
+    // <\PutAsync>
 
     static Handle<Value>
     Putkeep (const Arguments& args) {
@@ -620,6 +642,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <PutkeepAsync>
     static Handle<Value>
     PutkeepAsync (const Arguments& args) {
       HandleScope scope;
@@ -636,27 +659,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecPutkeep (eio_req *req) {
-      PutData *data = static_cast<PutData *>(req->data);
-      tchdbputkeep(data->hdb->db,
+    DEFINE_EXEC (Putkeep, PutData, 
+        tchdbputkeep(data->hdb->db,
           **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+          **(data->vbuf), data->vsiz))
 
-    static int
-    AfterPutkeep (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      PutData *data = static_cast<PutData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Putkeep, PutData)
+    // <\PutkeepAsync>
 
     static Handle<Value>
     Putcat (const Arguments& args) {
@@ -675,6 +684,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <PutcatAsync>
     static Handle<Value>
     PutcatAsync (const Arguments& args) {
       HandleScope scope;
@@ -691,27 +701,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecPutcat (eio_req *req) {
-      PutData *data = static_cast<PutData *>(req->data);
-      tchdbputcat(data->hdb->db,
+    DEFINE_EXEC (Putcat, PutData, 
+        tchdbputcat(data->hdb->db,
           **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+          **(data->vbuf), data->vsiz))
 
-    static int
-    AfterPutcat (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      PutData *data = static_cast<PutData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Putcat, PutData)
+    // <\PutcatAsync>
 
     static Handle<Value>
     Putasync (const Arguments& args) {
@@ -730,6 +726,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <PutasyncAsync>
     static Handle<Value>
     PutasyncAsync (const Arguments& args) {
       HandleScope scope;
@@ -746,27 +743,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecPutasync (eio_req *req) {
-      PutData *data = static_cast<PutData *>(req->data);
-      tchdbputasync(data->hdb->db,
+    DEFINE_EXEC (Putasync, PutData, 
+        tchdbputasync(data->hdb->db,
           **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+          **(data->vbuf), data->vsiz))
 
-    static int
-    AfterPutasync (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      PutData *data = static_cast<PutData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Putasync, PutData)
+    // <\PutasyncAsync>
 
     static Handle<Value>
     Out (const Arguments& args) {
@@ -782,8 +765,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class OutData : public AsyncData, public KeyDataCore {};
-
+    // <OutAsync>
     static Handle<Value>
     OutAsync (const Arguments& args) {
       HandleScope scope;
@@ -799,25 +781,12 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecOut (eio_req *req) {
-      OutData *data = static_cast<OutData *>(req->data);
-      tchdbout(data->hdb->db, **(data->kbuf), data->ksiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Out, OutData, 
+        tchdbout(data->hdb->db,
+          **(data->kbuf), data->ksiz))
 
-    static int
-    AfterOut (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      OutData *data = static_cast<OutData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Out, OutData)
+    // <OutAsync>
 
     static Handle<Value>
     Get (const Arguments& args) {
@@ -841,8 +810,7 @@ class HDB : ObjectWrap {
       }
     }
 
-    class GetData : public AsyncData, public GetDataCore {};
-
+    // <GetAsync>
     static Handle<Value>
     GetAsync (const Arguments& args) {
       HandleScope scope;
@@ -858,31 +826,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecGet (eio_req *req) {
-      GetData *data = static_cast<GetData *>(req->data);
-      data->vbuf = static_cast<char *>(tchdbget(
-          data->hdb->db,
-          **(data->kbuf),
-          data->ksiz,
-          &(data->vsiz)));
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Get, GetData, 
+        data->vbuf = static_cast<char *>(tchdbget(
+          data->hdb->db, **(data->kbuf), data->ksiz, &(data->vsiz))))
 
-    static int
-    AfterGet (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      GetData *data = static_cast<GetData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result), 
-            data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Get, GetData,
+        data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz))
+    // <\GetAsync>
 
     static Handle<Value>
     Vsiz (const Arguments& args) {
@@ -898,8 +848,7 @@ class HDB : ObjectWrap {
       return Integer::New(vsiz);
     }
 
-    class VsizData : public AsyncData, public VsizDataCore {};
-
+    // <VsizAsync>
     static Handle<Value>
     VsizAsync (const Arguments& args) {
       HandleScope scope;
@@ -915,27 +864,12 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecVsiz (eio_req *req) {
-      VsizData *data = static_cast<VsizData *>(req->data);
-      data->vsiz = tchdbvsiz(data->hdb->db, **(data->kbuf), data->ksiz);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Vsiz, VsizData, 
+        data->vsiz = tchdbvsiz(data->hdb->db, **(data->kbuf), data->ksiz))
 
-    static int
-    AfterVsiz (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      VsizData *data = static_cast<VsizData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result), 
-            Integer::New(data->vsiz));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Vsiz, VsizData,
+        Integer::New(data->vsiz))
+    // <\VsizAsync>
 
     static Handle<Value>
     Iterinit (const Arguments& args) {
@@ -945,6 +879,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <IterinitAsync>
     static Handle<Value>
     IterinitAsync (const Arguments& args) {
       HandleScope scope;
@@ -955,25 +890,10 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecIterinit (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbiterinit(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Iterinit, AsyncData, tchdbiterinit(data->hdb->db))
 
-    static int
-    AfterIterinit (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Iterinit, AsyncData)
+    // <\IterinitAsync>
 
     static Handle<Value>
     Iternext (const Arguments& args) {
@@ -991,6 +911,7 @@ class HDB : ObjectWrap {
       }
     }
 
+    // <IternextAsync>
     static Handle<Value>
     IternextAsync (const Arguments& args) {
       HandleScope scope;
@@ -1002,28 +923,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecIternext (eio_req *req) {
-      GetData *data = static_cast<GetData *>(req->data);
-      data->vbuf = static_cast<char *>(
-          tchdbiternext(data->hdb->db, &(data->vsiz)));
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Iternext, GetData, 
+        data->vbuf = static_cast<char *>(
+          tchdbiternext(data->hdb->db, &(data->vsiz))))
 
-    static int
-    AfterIternext (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      GetData *data = static_cast<GetData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result),
-            data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Iternext, GetData,
+        data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz))
+    // <IternextAsync>
 
     static Handle<Value>
     Fwmkeys (const Arguments& args) {
@@ -1043,8 +949,7 @@ class HDB : ObjectWrap {
       return ary;
     }
 
-    class FwmkeysData : public AsyncData, public FwmkeysDataCore {};
-
+    // <FwmkeysAsync>
     static Handle<Value>
     FwmkeysAsync (const Arguments& args) {
       HandleScope scope;
@@ -1062,28 +967,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecFwmkeys (eio_req *req) {
-      FwmkeysData *data = static_cast<FwmkeysData *>(req->data);
-      data->list = tchdbfwmkeys(data->hdb->db,
-          data->kbuf, data->ksiz, data->max);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Fwmkeys, FwmkeysData,
+        data->list = tchdbfwmkeys(data->hdb->db,
+          data->kbuf, data->ksiz, data->max))
 
-    static int
-    AfterFwmkeys (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      FwmkeysData *data = static_cast<FwmkeysData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result),
-            tclisttoary(data->list));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Fwmkeys, FwmkeysData,
+        tclisttoary(data->list))
+    // <\FwmkeysAsync>
 
     static Handle<Value>
     Addint (const Arguments& args) {
@@ -1101,8 +991,7 @@ class HDB : ObjectWrap {
       return sum == INT_MIN ? Null() : Integer::New(sum);
     }
 
-    class AddintData : public AsyncData, public AddintDataCore {};
-
+    // <AddintAsync>
     static Handle<Value>
     AddintAsync (const Arguments& args) {
       HandleScope scope;
@@ -1120,27 +1009,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecAddint (eio_req *req) {
-      AddintData *data = static_cast<AddintData *>(req->data);
-      data->num = tchdbaddint(data->hdb->db, data->kbuf, data->ksiz, data->num);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Addint, AddintData,
+        data->num = tchdbaddint(
+          data->hdb->db, data->kbuf, data->ksiz, data->num))
 
-    static int
-    AfterAddint (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AddintData *data = static_cast<AddintData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result),
-            data->num == INT_MIN ? Null() : Integer::New(data->num));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Addint, AddintData,
+        data->num == INT_MIN ? Null() : Integer::New(data->num))
+    // <\AddintAsync>
 
     static Handle<Value>
     Adddouble (const Arguments& args) {
@@ -1158,8 +1033,7 @@ class HDB : ObjectWrap {
       return isnan(sum) ? Null() : Number::New(sum);
     }
 
-    class AdddoubleData : public AsyncData, public AdddoubleDataCore {};
-
+    // <AdddoubleAsync>
     static Handle<Value>
     AdddoubleAsync (const Arguments& args) {
       HandleScope scope;
@@ -1177,28 +1051,13 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecAdddouble (eio_req *req) {
-      HandleScope scope;
-      AdddoubleData *data = static_cast<AdddoubleData *>(req->data);
-      data->num = tchdbadddouble(data->hdb->db, data->kbuf, data->ksiz, data->num);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Adddouble, AdddoubleData,
+        data->num = tchdbadddouble(
+          data->hdb->db, data->kbuf, data->ksiz, data->num))
 
-    static int
-    AfterAdddouble (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AdddoubleData *data = static_cast<AdddoubleData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(
-            Integer::New(req->result),
-            isnan(data->num) ? Null() : Number::New(data->num));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER2 (Adddouble, AdddoubleData,
+        isnan(data->num) ? Null() : Number::New(data->num))
+    // <\AdddoubleAsync>
 
     static Handle<Value>
     Sync (const Arguments& args) {
@@ -1208,6 +1067,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <SyncAsync>
     static Handle<Value>
     SyncAsync (const Arguments& args) {
       HandleScope scope;
@@ -1218,25 +1078,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecSync (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbsync(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Sync, AsyncData,
+        tchdbsync(data->hdb->db))
 
-    static int
-    AfterSync (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Sync, AsyncData)
+    // <SyncAsync>
 
     static Handle<Value>
     Optimize (const Arguments& args) {
@@ -1256,14 +1102,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class OptimizeData : public AsyncData {
-      public:
-        int64_t bnum;
-        int8_t apow;
-        int8_t fpow;
-        uint8_t opts;
-    };
-
+    // <OptimizeAsync>
     static Handle<Value>
     OptimizeAsync (const Arguments& args) {
       HandleScope scope;
@@ -1284,26 +1123,12 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecOptimize (eio_req *req) {
-      OptimizeData *data = static_cast<OptimizeData *>(req->data);
-      tchdboptimize(data->hdb->db,
-          data->bnum, data->apow, data->fpow, data->opts);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Optimize, OptimizeData,
+        tchdboptimize(data->hdb->db,
+          data->bnum, data->apow, data->fpow, data->opts))
 
-    static int
-    AfterOptimize (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      OptimizeData *data = static_cast<OptimizeData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Optimize, OptimizeData)
+    // <\OptimizeAsync>
 
     static Handle<Value>
     Vanish (const Arguments& args) {
@@ -1313,6 +1138,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <VanishAsync>
     static Handle<Value>
     VanishAsync (const Arguments& args) {
       HandleScope scope;
@@ -1323,25 +1149,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecVanish (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbvanish(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Vanish, AsyncData,
+        tchdbvanish(data->hdb->db))
 
-    static int
-    AfterVanish (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Vanish, AsyncData)
+    // <VanishAsync>
 
     static Handle<Value>
     Copy (const Arguments& args) {
@@ -1356,8 +1168,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class PathData : public AsyncData, public PathDataCore {};
-
+    // <CopyAsync>
     static Handle<Value>
     CopyAsync (const Arguments& args) {
       HandleScope scope;
@@ -1373,25 +1184,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecCopy (eio_req *req) {
-      PathData *data = static_cast<PathData *>(req->data);
-      tchdbcopy(data->hdb->db, **(data->path));
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Copy, PathData,
+        tchdbcopy(data->hdb->db, **(data->path)))
 
-    static int
-    AfterCopy (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      PathData *data = static_cast<PathData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Copy, PathData)
+    // <\CopyAsync>
 
     static Handle<Value>
     Tranbegin (const Arguments& args) {
@@ -1401,6 +1198,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <TranbeginAsync>
     static Handle<Value>
     TranbeginAsync (const Arguments& args) {
       HandleScope scope;
@@ -1411,25 +1209,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecTranbegin (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbtranbegin(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Tranbegin, AsyncData,
+        tchdbtranbegin(data->hdb->db))
 
-    static int
-    AfterTranbegin (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Tranbegin, AsyncData)
+    // <TranbeginAsync>
 
     static Handle<Value>
     Trancommit (const Arguments& args) {
@@ -1439,6 +1223,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <TrancommitAsync>
     static Handle<Value>
     TrancommitAsync (const Arguments& args) {
       HandleScope scope;
@@ -1449,25 +1234,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecTrancommit (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbtrancommit(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Trancommit, AsyncData,
+        tchdbtrancommit(data->hdb->db))
 
-    static int
-    AfterTrancommit (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Trancommit, AsyncData)
+    // <\TrancommitAsync>
 
     static Handle<Value>
     Tranabort (const Arguments& args) {
@@ -1477,6 +1248,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    // <TranabortAsync>
     static Handle<Value>
     TranabortAsync (const Arguments& args) {
       HandleScope scope;
@@ -1487,25 +1259,11 @@ class HDB : ObjectWrap {
       return Undefined();
     }
 
-    static int
-    ExecTranabort (eio_req *req) {
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      tchdbtranabort(data->hdb->db);
-      req->result = tchdbecode(data->hdb->db);
-      return 0;
-    }
+    DEFINE_EXEC (Tranabort, AsyncData,
+        tchdbtranabort(data->hdb->db))
 
-    static int
-    AfterTranabort (eio_req *req) {
-      HandleScope scope;
-      ev_unref(EV_DEFAULT_UC);
-      AsyncData *data = static_cast<AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      delete data;
-      return 0;
-    }
+    DEFINE_AFTER1 (Tranabort, AsyncData)
+    // <\TranabortAsync>
 
     static Handle<Value>
     Path (const Arguments& args) {
@@ -1721,7 +1479,9 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Put (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2) {
+      if (args.Length() < 2 ||
+          !ARG0->IsString() ||
+          !ARG1->IsString()) {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbput(
@@ -1751,7 +1511,9 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Putcat (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2) {
+      if (args.Length() < 2 ||
+          !ARG0->IsString() ||
+          !ARG1->IsString()) {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbputcat(
@@ -1766,7 +1528,9 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Putdup (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2) {
+      if (args.Length() < 2 ||
+          !ARG0->IsString() ||
+          !ARG1->IsString()) {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbputdup(
@@ -1782,7 +1546,8 @@ class BDB : ObjectWrap {
     Putlist (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 2 ||
-          !(ARG1->IsArray())) {
+          !ARG0->IsString() ||
+          !ARG1->IsArray()) {
         return THROW_BAD_ARGS;
       }
       TCLIST *list = arytotclist(Local<Array>::Cast(ARG1));
@@ -1798,7 +1563,8 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Out (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1) {
+      if (args.Length() < 1 ||
+          !ARG0->IsString()) {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbout(
@@ -1811,7 +1577,8 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Outlist (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1) {
+      if (args.Length() < 1 ||
+          !ARG0->IsString()) {
         return THROW_BAD_ARGS;
       }
       bool success = tcbdbout3(
@@ -1824,7 +1591,8 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Get (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1) {
+      if (args.Length() < 1 ||
+          !ARG0->IsString()) {
         return THROW_BAD_ARGS;
       }
       int vsiz;
@@ -1844,7 +1612,8 @@ class BDB : ObjectWrap {
     static Handle<Value>
     Getlist (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1) {
+      if (args.Length() < 1 ||
+          !ARG0->IsString()) {
         return THROW_BAD_ARGS;
       }
       TCLIST *list = tcbdbget4(
