@@ -53,8 +53,7 @@
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
-    data->run();                                                              \
-    req->result = data->getEcode();                                           \
+    req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
   static int                                                                  \
@@ -86,8 +85,7 @@
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
-    data->run();                                                              \
-    req->result = data->getEcode();                                           \
+    req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
   static int                                                                  \
@@ -177,7 +175,6 @@ class AsyncDataCore {
       }
     }
 
-    virtual
     ~AsyncDataCore () {
       if (hasCallback) cb.Dispose();
     }
@@ -540,7 +537,7 @@ class HDB : ObjectWrap {
         }
 
         int
-        getEcode () {
+        ecode () {
           return tchdbecode(hdb->db);
         }
     };
@@ -640,8 +637,8 @@ class HDB : ObjectWrap {
           omode = ARG1->IsUndefined() ? HDBOREADER : VINT32(ARG1);
         }
 
-        void run () {
-          tchdbopen(hdb->db, **(path), omode);
+        bool run () {
+          return tchdbopen(hdb->db, **(path), omode);
         }
     };
 
@@ -662,8 +659,8 @@ class HDB : ObjectWrap {
 
     class CloseData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbclose(hdb->db);
+        bool run () {
+          return tchdbclose(hdb->db);
         }
     };
 
@@ -684,8 +681,8 @@ class HDB : ObjectWrap {
           setKeyVal(ARG0, ARG1);
         }
 
-        void run () {
-          tchdbput(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        bool run () {
+          return tchdbput(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
         }
     };
 
@@ -708,8 +705,8 @@ class HDB : ObjectWrap {
 
     class PutkeepData : public PutData {
       public:
-        void run () {
-          tchdbputkeep(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        bool run () {
+          return tchdbputkeep(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
         }
     };
 
@@ -732,8 +729,8 @@ class HDB : ObjectWrap {
 
     class PutcatData : public PutData {
       public:
-        void run () {
-          tchdbputcat(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        bool run () {
+          return tchdbputcat(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
         }
     };
 
@@ -756,8 +753,8 @@ class HDB : ObjectWrap {
 
     class PutasyncData : public PutData {
       public:
-        void run () {
-          tchdbputasync(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        bool run () {
+          return tchdbputasync(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
         }
     };
 
@@ -785,8 +782,8 @@ class HDB : ObjectWrap {
           setKey(ARG0);
         }
 
-        void run () {
-          tchdbout(hdb->db, **(kbuf), ksiz);
+        bool run () {
+          return tchdbout(hdb->db, **(kbuf), ksiz);
         }
     };
 
@@ -812,8 +809,9 @@ class HDB : ObjectWrap {
           setKey(ARG0);
         }
 
-        void run () {
-          vbuf = static_cast<char *>(tchdbget(hdb->db, **(kbuf), ksiz, &vsiz));
+        bool run () {
+          vbuf = static_cast<char *>(tchdbget(hdb->db, **kbuf, ksiz, &vsiz));
+          return vbuf != NULL;
         }
     };
 
@@ -847,8 +845,9 @@ class HDB : ObjectWrap {
           setKey(ARG0);
         }
 
-        void run () {
+        bool run () {
           vsiz = tchdbvsiz(hdb->db, **kbuf, ksiz);
+          return vsiz != -1;
         }
     };
 
@@ -869,8 +868,8 @@ class HDB : ObjectWrap {
 
     class IterinitData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbiterinit(hdb->db);
+        bool run () {
+          return tchdbiterinit(hdb->db);
         }
     };
 
@@ -886,8 +885,9 @@ class HDB : ObjectWrap {
 
     class IternextData : public AsyncData, public RetValDataCore {
       public:
-        void run () {
+        bool run () {
           vbuf = static_cast<char *>(tchdbiternext(hdb->db, &vsiz));
+          return vbuf != NULL;
         }
     };
 
@@ -917,8 +917,9 @@ class HDB : ObjectWrap {
           max = NOU(ARG1) ? -1 : VINT32(ARG1);
         }
 
-        void run () {
+        bool run () {
           list = tchdbfwmkeys(hdb->db, kbuf, ksiz, max);
+          return true;
         }
     };
 
@@ -948,8 +949,9 @@ class HDB : ObjectWrap {
           num = VINT32(ARG1);
         }
 
-        void run () {
+        bool run () {
           num = tchdbaddint(hdb->db, kbuf, ksiz, num);
+          return num != INT_MIN;
         }
     };
 
@@ -977,8 +979,9 @@ class HDB : ObjectWrap {
           num = VINT32(ARG1);
         }
 
-        void run () {
+        bool run () {
           num = tchdbadddouble(hdb->db, kbuf, ksiz, num);
+          return !isnan(num);
         }
     };
 
@@ -1000,8 +1003,8 @@ class HDB : ObjectWrap {
 
     class SyncData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbsync(hdb->db);
+        bool run () {
+          return tchdbsync(hdb->db);
         }
     };
 
@@ -1038,8 +1041,8 @@ class HDB : ObjectWrap {
           opts = NOU(ARG3) ? UINT8_MAX : VINT32(ARG3);
         }
 
-        void run () {
-          tchdboptimize(hdb->db, bnum, apow, fpow, opts);
+        bool run () {
+          return tchdboptimize(hdb->db, bnum, apow, fpow, opts);
         }
     };
 
@@ -1062,8 +1065,8 @@ class HDB : ObjectWrap {
 
     class VanishData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbvanish(hdb->db);
+        bool run () {
+          return tchdbvanish(hdb->db);
         }
     };
 
@@ -1084,8 +1087,8 @@ class HDB : ObjectWrap {
           setPath(ARG0);
         }
 
-        void run () {
-          tchdbcopy(hdb->db, **path);
+        bool run () {
+          return tchdbcopy(hdb->db, **path);
         }
     };
 
@@ -1105,8 +1108,8 @@ class HDB : ObjectWrap {
 
     class TranbeginData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbtranbegin(hdb->db);
+        bool run () {
+          return tchdbtranbegin(hdb->db);
         }
     };
 
@@ -1122,8 +1125,8 @@ class HDB : ObjectWrap {
 
     class TrancommitData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbtrancommit(hdb->db);
+        bool run () {
+          return tchdbtrancommit(hdb->db);
         }
     };
 
@@ -1139,8 +1142,8 @@ class HDB : ObjectWrap {
 
     class TranabortData : public AsyncData, public ArgsDataCore {
       public:
-        void run () {
-          tchdbtranabort(hdb->db);
+        bool run () {
+          return tchdbtranabort(hdb->db);
         }
     };
 
