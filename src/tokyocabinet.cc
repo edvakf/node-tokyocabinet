@@ -25,6 +25,7 @@
 #define ARG3 args[3]
 #define ARG4 args[4]
 #define ARG5 args[5]
+#define ARG6 args[6]
 
 #define VDOUBLE(obj) ((obj)->NumberValue())
 #define VINT32(obj) ((obj)->Int32Value())
@@ -35,43 +36,76 @@
 // null or undefined
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
 
-#define DEFINE_EXEC(func, type, actual_operation) \
-  static int Exec##func (eio_req *req) { \
-    type *data = static_cast<type *>(req->data); \
-    actual_operation ; \
-    req->result = data->getEcode(); \
-    return 0; \
+/* async method blueprint */
+#define DEFINE_ASYNC(name)                                                    \
+  static Handle<Value>                                                        \
+  name##Async (const Arguments& args) {                                       \
+    HandleScope scope;                                                        \
+    if (!name##Data::checkArgs(args)) {                                       \
+      return THROW_BAD_ARGS;                                                  \
+    }                                                                         \
+    name##Data *data = new name##Data;                                        \
+    data->init(args);                                                         \
+    eio_custom(Exec##name, EIO_PRI_DEFAULT, After##name, data);               \
+    ev_ref(EV_DEFAULT_UC);                                                    \
+    return Undefined();                                                       \
+  }                                                                           \
+  static int                                                                  \
+  Exec##name (eio_req *req) {                                                 \
+    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    data->run();                                                              \
+    req->result = data->getEcode();                                           \
+    return 0;                                                                 \
+  }                                                                           \
+  static int                                                                  \
+  After##name (eio_req *req) {                                                \
+    HandleScope scope;                                                        \
+    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    if (data->hasCallback) {                                                  \
+      data->callCallback(Integer::New(req->result));                          \
+    }                                                                         \
+    ev_unref(EV_DEFAULT_UC);                                                  \
+    delete data;                                                              \
+    return 0;                                                                 \
   }
 
-#define DEFINE_AFTER1(func, type) \
-  static int After##func (eio_req *req) { \
-    HandleScope scope; \
-    type *data = static_cast<type *>(req->data); \
-    if (data->hasCallback) { \
-      data->callCallback(Integer::New(req->result)); \
-    } \
-    ev_unref(EV_DEFAULT_UC); \
-    delete data; \
-    return 0; \
-  }
-
-#define DEFINE_AFTER2(func, type, second_arg) \
-  static int After##func (eio_req *req) { \
-    HandleScope scope; \
-    type *data = static_cast<type *>(req->data); \
-    if (data->hasCallback) { \
-      data->callCallback( \
-          Integer::New(req->result), \
-          second_arg); \
-    } \
-    ev_unref(EV_DEFAULT_UC); \
-    delete data; \
-    return 0; \
+/* async method with an extra return value to the callback */
+#define DEFINE_ASYNC2(name)                                                   \
+  static Handle<Value>                                                        \
+  name##Async (const Arguments& args) {                                       \
+    HandleScope scope;                                                        \
+    if (!name##Data::checkArgs(args)) {                                       \
+      return THROW_BAD_ARGS;                                                  \
+    }                                                                         \
+    name##Data *data = new name##Data;                                        \
+    data->init(args);                                                         \
+    eio_custom(Exec##name, EIO_PRI_DEFAULT, After##name, data);               \
+    ev_ref(EV_DEFAULT_UC);                                                    \
+    return Undefined();                                                       \
+  }                                                                           \
+  static int                                                                  \
+  Exec##name (eio_req *req) {                                                 \
+    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    data->run();                                                              \
+    req->result = data->getEcode();                                           \
+    return 0;                                                                 \
+  }                                                                           \
+  static int                                                                  \
+  After##name (eio_req *req) {                                                \
+    HandleScope scope;                                                        \
+    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    if (data->hasCallback) {                                                  \
+      data->callCallback(Integer::New(req->result), data->extraReturnValue());\
+    }                                                                         \
+    ev_unref(EV_DEFAULT_UC);                                                  \
+    delete data;                                                              \
+    return 0;                                                                 \
   }
 
 using namespace v8;
 using namespace node;
 
+// conversion between Tokyo Cabinet list/map to V8 Arrya/Object and vice versa
 inline TCLIST* arytotclist (const Handle<Array> ary) {
   HandleScope scope;
   int len = ary->Length();
@@ -126,14 +160,14 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
   return obj;
 }
 
-// Asynchronous objects that gets passed around to libeio functions
+// object that gets passed to libeio async functions
 class AsyncDataCore {
   public:
     Persistent<Function> cb;
     bool hasCallback;
 
     void
-    setCallback(Handle<Value> cb_) {
+    setCallback (Handle<Value> cb_) {
       HandleScope scope;
       if (cb_->IsFunction()) {
         hasCallback = true;
@@ -144,12 +178,12 @@ class AsyncDataCore {
     }
 
     virtual
-    ~AsyncDataCore() {
+    ~AsyncDataCore () {
       if (hasCallback) cb.Dispose();
     }
 
     inline void
-    callback(int argc, Handle<Value> argv[]) {
+    callback (int argc, Handle<Value> argv[]) {
       TryCatch try_catch;
       cb->Call(Context::GetCurrent()->Global(), argc, argv);
       if (try_catch.HasCaught()) {
@@ -158,7 +192,7 @@ class AsyncDataCore {
     }
 
     inline void
-    callCallback(Handle<Value> arg0) {
+    callCallback (Handle<Value> arg0) {
       HandleScope scope;
       Handle<Value> args[1];
       args[0] = arg0;
@@ -166,7 +200,7 @@ class AsyncDataCore {
     }
 
     inline void
-    callCallback(Handle<Value> arg0, Handle<Value>arg1) {
+    callCallback (Handle<Value> arg0, Handle<Value>arg1) {
       HandleScope scope;
       Handle<Value> args[2];
       args[0] = arg0;
@@ -175,99 +209,186 @@ class AsyncDataCore {
     }
 };
 
-class PathDataCore {
+// arguments data that will be multiply inherited to make actual async objects
+class ArgsDataCore {
   public:
+    static bool
+    checkArgs (const Arguments& args) {
+      return true;
+    }
+};
+
+class PathDataCore : public ArgsDataCore {
+  protected:
     String::Utf8Value *path;
 
+  public:
     void
-    setPath(Handle<Value> p) {
+    setPath (Handle<Value> p) {
       path = new String::Utf8Value(p);
     }
 
-    ~PathDataCore() {
+    ~PathDataCore () {
       delete path;
+    }
+
+    static bool
+    checkArgs (const Arguments& args) {
+      return ARG0->IsString();
     }
 };
 
 class OpenDataCore : public PathDataCore {
-  public:
+  protected:
     int omode;
+
+  public:
+    static bool
+    checkArgs (const Arguments& args) {
+      return PathDataCore::checkArgs(args) &&
+        (ARG1->IsUndefined() || ARG1->IsNumber());
+    }
 };
 
-class KeyDataCore {
-  public:
+class KeyDataCore : public ArgsDataCore {
+  protected:
     String::Utf8Value *kbuf;
     int ksiz;
 
+  public:
     void
-    setKey(Handle<Value> key) {
+    setKey (Handle<Value> key) {
       kbuf = new String::Utf8Value(key);
       ksiz = kbuf->length();
     }
 
-    ~KeyDataCore() {
+    ~KeyDataCore () {
       delete kbuf;
+    }
+
+    static bool
+    checkArgs (const Arguments& args) {
+      return ARG0->IsString();
     }
 };
 
 class VsizDataCore : public KeyDataCore {
-  public:
+  protected:
     int vsiz;
+
+  public:
+    Handle<Value>
+    extraReturnValue () {
+      return Number::New(vsiz);
+    }
 };
 
 class PutDataCore : public KeyDataCore {
-  public:
+  protected:
     String::Utf8Value *vbuf;
     int vsiz;
 
+  public:
     void
-    setKeyVal(Handle<Value> key, Handle<Value> value) {
+    setKeyVal (Handle<Value> key, Handle<Value> value) {
       this->setKey(key);
       vbuf = new String::Utf8Value(value);
       vsiz = vbuf->length();
     }
 
-    ~PutDataCore() {
+    ~PutDataCore () {
       delete vbuf;
+    }
+
+    static bool
+    checkArgs (const Arguments& args) {
+      return KeyDataCore::checkArgs(args) && ARG1->IsString();
+    }
+};
+
+class RetValDataCore : public ArgsDataCore {
+  protected:
+    char *vbuf;
+    int vsiz;
+
+  public:
+    ~RetValDataCore () {
+      tcfree(vbuf);
+    }
+
+    Handle<Value>
+    extraReturnValue () {
+      return vbuf == NULL ? Null() : String::New(vbuf, vsiz);
     }
 };
 
 class GetDataCore : public KeyDataCore {
-  public:
+  protected:
     char *vbuf;
     int vsiz;
 
-    ~GetDataCore() {
+  public:
+    ~GetDataCore () {
       tcfree(vbuf);
     }
-};
 
-class ValListDataCore : public KeyDataCore {
-  public:
-    TCLIST *list;
-
-    ~ValListDataCore() {
-      tclistdel(list);
+    Handle<Value>
+    extraReturnValue () {
+      return vbuf == NULL ? Null() : String::New(vbuf, vsiz);
     }
 };
 
-class FwmkeysDataCore : public ValListDataCore {
+class GetListDataCore : public KeyDataCore {
+  protected:
+    TCLIST *list;
+
   public:
+    ~GetListDataCore () {
+      tclistdel(list);
+    }
+
+    Handle<Value>
+    extraReturnValue () {
+      return tclisttoary(list);
+    }
+};
+
+class FwmkeysDataCore : public GetListDataCore {
+  protected:
     int max;
 };
 
 class AddintDataCore : public KeyDataCore {
-  public:
+  protected:
     int num;
+
+  public:
+    static bool
+    checkArgs (const Arguments& args) {
+      return KeyDataCore::checkArgs(args) && ARG1->IsNumber();
+    }
+
+    Handle<Value>
+    extraReturnValue () {
+      return num == INT_MIN ? Null() : Integer::New(num);
+    }
 };
 
 class AdddoubleDataCore : public KeyDataCore {
-  public:
+  protected:
     double num;
+
+  public:
+    static bool
+    checkArgs (const Arguments& args) {
+      return KeyDataCore::checkArgs(args) && ARG1->IsNumber();
+    }
+
+    Handle<Value>
+    extraReturnValue () {
+      return isnan(num) ? Null() : Number::New(num);
+    }
 };
-
-
-// check arguments
 
 
 // Tokyo Cabinet
@@ -400,9 +521,15 @@ class HDB : ObjectWrap {
       public:
         HDB *hdb;
 
+        // init() may be overridden by ArgsData variants
+        void
+        init (const Arguments& args) {
+          setCallback(THIS, ARG0);
+        }
+
         void
         setCallback (Handle<Object> This, Handle<Value> cb) {
-          this->AsyncDataCore::setCallback(cb);
+          AsyncDataCore::setCallback(cb);
           hdb = Unwrap(This);
           hdb->Ref();
         }
@@ -417,24 +544,6 @@ class HDB : ObjectWrap {
           return tchdbecode(hdb->db);
         }
     };
-
-    class OptimizeData : public AsyncData {
-      public:
-        int64_t bnum;
-        int8_t apow;
-        int8_t fpow;
-        uint8_t opts;
-    };
-
-    class PathData : public AsyncData, public PathDataCore {};
-    class OpenData : public AsyncData, public OpenDataCore {};
-    class PutData : public AsyncData, public PutDataCore {};
-    class OutData : public AsyncData, public KeyDataCore {};
-    class GetData : public AsyncData, public GetDataCore {};
-    class VsizData : public AsyncData, public VsizDataCore {};
-    class FwmkeysData : public AsyncData, public FwmkeysDataCore {};
-    class AddintData : public AsyncData, public AddintDataCore {};
-    class AdddoubleData : public AsyncData, public AdddoubleDataCore {};
 
     static Handle<Value>
     New (const Arguments& args) {
@@ -490,7 +599,7 @@ class HDB : ObjectWrap {
     static Handle<Value>
     Setcache (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0))) {
+      if (!(ARG0->IsNumber() || ARG0->IsUndefined())) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetcache(
@@ -502,7 +611,7 @@ class HDB : ObjectWrap {
     static Handle<Value>
     Setxmsiz (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0))) {
+      if (!(ARG0->IsNumber() || ARG0->IsUndefined())) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetxmsiz(
@@ -514,7 +623,7 @@ class HDB : ObjectWrap {
     static Handle<Value>
     Setdfunit (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0))) {
+      if (!(ARG0->IsNumber() || ARG0->IsUndefined())) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbsetdfunit(
@@ -523,10 +632,23 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
+    class OpenData : public AsyncData, public OpenDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG2);
+          setPath(ARG0);
+          omode = ARG1->IsUndefined() ? HDBOREADER : VINT32(ARG1);
+        }
+
+        void run () {
+          tchdbopen(hdb->db, **(path), omode);
+        }
+    };
+
     static Handle<Value>
     Open (const Arguments& args) {
       HandleScope scope;
-      if (!ARG0->IsString()) {
+      if (!OpenData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbopen(
@@ -536,27 +658,14 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <OpenAsync>
-    static Handle<Value>
-    OpenAsync (const Arguments& args) {
-      HandleScope scope;
-      if (!ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      OpenData *data = new OpenData;
-      data->setCallback(THIS, ARG2);
-      data->setPath(ARG0);
-      data->omode = NOU(ARG1) ? HDBOREADER : VINT32(ARG1);
-      eio_custom(ExecOpen, EIO_PRI_DEFAULT, AfterOpen, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Open)
 
-    DEFINE_EXEC (Open, OpenData,
-        tchdbopen(data->hdb->db, **(data->path), data->omode))
-
-    DEFINE_AFTER1 (Open, OpenData)
-    // <\OpenAsync>
+    class CloseData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbclose(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Close (const Arguments& args) {
@@ -566,29 +675,24 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <CloseAsync>
-    static Handle<Value>
-    CloseAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecClose, EIO_PRI_DEFAULT, AfterClose, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Close)
 
-    DEFINE_EXEC (Close, AsyncData, 
-        tchdbclose(data->hdb->db))
+    class PutData : public AsyncData, public PutDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG2);
+          setKeyVal(ARG0, ARG1);
+        }
 
-    DEFINE_AFTER1 (Close, AsyncData)
-    // <\CloseAsync>
+        void run () {
+          tchdbput(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        }
+    };
 
     static Handle<Value>
     Put (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
+      if (!PutData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbput(
@@ -600,37 +704,19 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <PutAsync>
-    static Handle<Value>
-    PutAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      PutData *data = new PutData;
-      data->setCallback(THIS, ARG2);
-      data->setKeyVal(ARG0, ARG1);
-      eio_custom(ExecPut, EIO_PRI_DEFAULT, AfterPut, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Put)
 
-    DEFINE_EXEC (Put, PutData, 
-        tchdbput(data->hdb->db,
-          **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz))
-
-    DEFINE_AFTER1 (Put, PutData)
-    // <\PutAsync>
+    class PutkeepData : public PutData {
+      public:
+        void run () {
+          tchdbputkeep(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        }
+    };
 
     static Handle<Value>
     Putkeep (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
+      if (!PutkeepData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputkeep(
@@ -642,37 +728,19 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <PutkeepAsync>
-    static Handle<Value>
-    PutkeepAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      PutData *data = new PutData;
-      data->setCallback(THIS, ARG2);
-      data->setKeyVal(ARG0, ARG1);
-      eio_custom(ExecPutkeep, EIO_PRI_DEFAULT, AfterPutkeep, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Putkeep)
 
-    DEFINE_EXEC (Putkeep, PutData, 
-        tchdbputkeep(data->hdb->db,
-          **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz))
-
-    DEFINE_AFTER1 (Putkeep, PutData)
-    // <\PutkeepAsync>
+    class PutcatData : public PutData {
+      public:
+        void run () {
+          tchdbputcat(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        }
+    };
 
     static Handle<Value>
     Putcat (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
+      if (!PutcatData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputcat(
@@ -684,37 +752,19 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <PutcatAsync>
-    static Handle<Value>
-    PutcatAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      PutData *data = new PutData;
-      data->setCallback(THIS, ARG2);
-      data->setKeyVal(ARG0, ARG1);
-      eio_custom(ExecPutcat, EIO_PRI_DEFAULT, AfterPutcat, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Putcat)
 
-    DEFINE_EXEC (Putcat, PutData, 
-        tchdbputcat(data->hdb->db,
-          **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz))
-
-    DEFINE_AFTER1 (Putcat, PutData)
-    // <\PutcatAsync>
+    class PutasyncData : public PutData {
+      public:
+        void run () {
+          tchdbputasync(hdb->db, **(kbuf), ksiz, **(vbuf), vsiz);
+        }
+    };
 
     static Handle<Value>
     Putasync (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
+      if (!PutasyncData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbputasync(
@@ -726,36 +776,24 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <PutasyncAsync>
-    static Handle<Value>
-    PutasyncAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      PutData *data = new PutData;
-      data->setCallback(THIS, ARG2);
-      data->setKeyVal(ARG0, ARG1);
-      eio_custom(ExecPutasync, EIO_PRI_DEFAULT, AfterPutasync, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Putasync)
 
-    DEFINE_EXEC (Putasync, PutData, 
-        tchdbputasync(data->hdb->db,
-          **(data->kbuf), data->ksiz,
-          **(data->vbuf), data->vsiz))
+    class OutData : public AsyncData, public KeyDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG1);
+          setKey(ARG0);
+        }
 
-    DEFINE_AFTER1 (Putasync, PutData)
-    // <\PutasyncAsync>
+        void run () {
+          tchdbout(hdb->db, **(kbuf), ksiz);
+        }
+    };
 
     static Handle<Value>
     Out (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
+      if (!OutData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdbout(
@@ -765,34 +803,24 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <OutAsync>
-    static Handle<Value>
-    OutAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      OutData *data = new OutData;
-      data->setCallback(THIS, ARG1);
-      data->setKey(ARG0);
-      eio_custom(ExecOut, EIO_PRI_DEFAULT, AfterOut, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Out)
 
-    DEFINE_EXEC (Out, OutData, 
-        tchdbout(data->hdb->db,
-          **(data->kbuf), data->ksiz))
+    class GetData : public AsyncData, public GetDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG1);
+          setKey(ARG0);
+        }
 
-    DEFINE_AFTER1 (Out, OutData)
-    // <OutAsync>
+        void run () {
+          vbuf = static_cast<char *>(tchdbget(hdb->db, **(kbuf), ksiz, &vsiz));
+        }
+    };
 
     static Handle<Value>
     Get (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
+      if (!GetData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       int vsiz;
@@ -810,35 +838,24 @@ class HDB : ObjectWrap {
       }
     }
 
-    // <GetAsync>
-    static Handle<Value>
-    GetAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      GetData *data = new GetData;
-      data->setCallback(THIS, ARG1);
-      data->setKey(ARG0);
-      eio_custom(ExecGet, EIO_PRI_DEFAULT, AfterGet, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Get)
 
-    DEFINE_EXEC (Get, GetData, 
-        data->vbuf = static_cast<char *>(tchdbget(
-          data->hdb->db, **(data->kbuf), data->ksiz, &(data->vsiz))))
+    class VsizData : public AsyncData, public VsizDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG1);
+          setKey(ARG0);
+        }
 
-    DEFINE_AFTER2 (Get, GetData,
-        data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz))
-    // <\GetAsync>
+        void run () {
+          vsiz = tchdbvsiz(hdb->db, **kbuf, ksiz);
+        }
+    };
 
     static Handle<Value>
     Vsiz (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
+      if (!VsizData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       int vsiz = tchdbvsiz(
@@ -848,28 +865,14 @@ class HDB : ObjectWrap {
       return Integer::New(vsiz);
     }
 
-    // <VsizAsync>
-    static Handle<Value>
-    VsizAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      VsizData *data = new VsizData;
-      data->setCallback(THIS, ARG1);
-      data->setKey(ARG0);
-      eio_custom(ExecVsiz, EIO_PRI_DEFAULT, AfterVsiz, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Vsiz)
 
-    DEFINE_EXEC (Vsiz, VsizData, 
-        data->vsiz = tchdbvsiz(data->hdb->db, **(data->kbuf), data->ksiz))
-
-    DEFINE_AFTER2 (Vsiz, VsizData,
-        Integer::New(data->vsiz))
-    // <\VsizAsync>
+    class IterinitData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbiterinit(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Iterinit (const Arguments& args) {
@@ -879,21 +882,14 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <IterinitAsync>
-    static Handle<Value>
-    IterinitAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecIterinit, EIO_PRI_DEFAULT, AfterIterinit, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Iterinit)
 
-    DEFINE_EXEC (Iterinit, AsyncData, tchdbiterinit(data->hdb->db))
-
-    DEFINE_AFTER1 (Iterinit, AsyncData)
-    // <\IterinitAsync>
+    class IternextData : public AsyncData, public RetValDataCore {
+      public:
+        void run () {
+          vbuf = static_cast<char *>(tchdbiternext(hdb->db, &vsiz));
+        }
+    };
 
     static Handle<Value>
     Iternext (const Arguments& args) {
@@ -911,32 +907,25 @@ class HDB : ObjectWrap {
       }
     }
 
-    // <IternextAsync>
-    static Handle<Value>
-    IternextAsync (const Arguments& args) {
-      HandleScope scope;
-      GetData *data = new GetData;
-      data->setCallback(THIS, ARG0);
-      data->kbuf = NULL;
-      eio_custom(ExecIternext, EIO_PRI_DEFAULT, AfterIternext, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Iternext)
 
-    DEFINE_EXEC (Iternext, GetData, 
-        data->vbuf = static_cast<char *>(
-          tchdbiternext(data->hdb->db, &(data->vsiz))))
+    class FwmkeysData : public AsyncData, public FwmkeysDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG2);
+          setKey(ARG0);
+          max = NOU(ARG1) ? -1 : VINT32(ARG1);
+        }
 
-    DEFINE_AFTER2 (Iternext, GetData,
-        data->vbuf == NULL ? Null() : String::New(data->vbuf, data->vsiz))
-    // <IternextAsync>
+        void run () {
+          list = tchdbfwmkeys(hdb->db, kbuf, ksiz, max);
+        }
+    };
 
     static Handle<Value>
     Fwmkeys (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString() ||
-          !(ARG1->IsNumber() || NOU(ARG1))) {
+      if (!FwmkeysData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       TCLIST *keys = tchdbfwmkeys(
@@ -949,38 +938,25 @@ class HDB : ObjectWrap {
       return ary;
     }
 
-    // <FwmkeysAsync>
-    static Handle<Value>
-    FwmkeysAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString() ||
-          !(ARG1->IsNumber() || NOU(ARG1))) {
-        return THROW_BAD_ARGS;
-      }
-      FwmkeysData *data = new FwmkeysData;
-      data->setCallback(THIS, ARG2);
-      data->setKey(ARG0);
-      data->max = NOU(ARG1) ? -1 : VINT32(ARG1);
-      eio_custom(ExecFwmkeys, EIO_PRI_DEFAULT, AfterFwmkeys, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Fwmkeys)
 
-    DEFINE_EXEC (Fwmkeys, FwmkeysData,
-        data->list = tchdbfwmkeys(data->hdb->db,
-          data->kbuf, data->ksiz, data->max))
+    class AddintData : public AsyncData, public AddintDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG2);
+          setKey(ARG0);
+          num = VINT32(ARG1);
+        }
 
-    DEFINE_AFTER2 (Fwmkeys, FwmkeysData,
-        tclisttoary(data->list))
-    // <\FwmkeysAsync>
+        void run () {
+          num = tchdbaddint(hdb->db, kbuf, ksiz, num);
+        }
+    };
 
     static Handle<Value>
     Addint (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsNumber()) {
+      if (!AddintData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       int sum = tchdbaddint(
@@ -991,38 +967,25 @@ class HDB : ObjectWrap {
       return sum == INT_MIN ? Null() : Integer::New(sum);
     }
 
-    // <AddintAsync>
-    static Handle<Value>
-    AddintAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsNumber()) {
-        return THROW_BAD_ARGS;
-      }
-      AddintData *data = new AddintData;
-      data->setCallback(THIS, ARG2);
-      data->setKey(ARG0);
-      data->num = VINT32(ARG1);
-      eio_custom(ExecAddint, EIO_PRI_DEFAULT, AfterAddint, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Addint)
 
-    DEFINE_EXEC (Addint, AddintData,
-        data->num = tchdbaddint(
-          data->hdb->db, data->kbuf, data->ksiz, data->num))
+    class AdddoubleData : public AsyncData, public AdddoubleDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG2);
+          setKey(ARG0);
+          num = VINT32(ARG1);
+        }
 
-    DEFINE_AFTER2 (Addint, AddintData,
-        data->num == INT_MIN ? Null() : Integer::New(data->num))
-    // <\AddintAsync>
+        void run () {
+          num = tchdbadddouble(hdb->db, kbuf, ksiz, num);
+        }
+    };
 
     static Handle<Value>
     Adddouble (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsNumber()) {
+      if (!AdddoubleData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       double sum = tchdbadddouble(
@@ -1033,31 +996,14 @@ class HDB : ObjectWrap {
       return isnan(sum) ? Null() : Number::New(sum);
     }
 
-    // <AdddoubleAsync>
-    static Handle<Value>
-    AdddoubleAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG0->IsString() ||
-          !ARG1->IsNumber()) {
-        return THROW_BAD_ARGS;
-      }
-      AdddoubleData *data = new AdddoubleData;
-      data->setCallback(THIS, ARG2);
-      data->setKey(ARG0);
-      data->num = VDOUBLE(ARG1);
-      eio_custom(ExecAdddouble, EIO_PRI_DEFAULT, AfterAdddouble, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC2(Adddouble)
 
-    DEFINE_EXEC (Adddouble, AdddoubleData,
-        data->num = tchdbadddouble(
-          data->hdb->db, data->kbuf, data->ksiz, data->num))
-
-    DEFINE_AFTER2 (Adddouble, AdddoubleData,
-        isnan(data->num) ? Null() : Number::New(data->num))
-    // <\AdddoubleAsync>
+    class SyncData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbsync(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Sync (const Arguments& args) {
@@ -1067,30 +1013,40 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <SyncAsync>
-    static Handle<Value>
-    SyncAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecSync, EIO_PRI_DEFAULT, AfterSync, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Sync)
 
-    DEFINE_EXEC (Sync, AsyncData,
-        tchdbsync(data->hdb->db))
+    class OptimizeData : public AsyncData, public ArgsDataCore {
+      private:
+        int64_t bnum;
+        int8_t apow;
+        int8_t fpow;
+        uint8_t opts;
 
-    DEFINE_AFTER1 (Sync, AsyncData)
-    // <SyncAsync>
+      public:
+        static bool checkArgs (const Arguments& args) {
+          return (ARG0->IsNumber() || NOU(ARG0)) &&
+                 (ARG1->IsNumber() || NOU(ARG1)) &&
+                 (ARG2->IsNumber() || NOU(ARG2)) &&
+                 (ARG3->IsNumber() || NOU(ARG3));
+        }
+
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG4);
+          bnum = NOU(ARG0) ? -1 : VINT64(ARG0);
+          apow = NOU(ARG1) ? -1 : VINT32(ARG1);
+          fpow = NOU(ARG2) ? -1 : VINT32(ARG2);
+          opts = NOU(ARG3) ? UINT8_MAX : VINT32(ARG3);
+        }
+
+        void run () {
+          tchdboptimize(hdb->db, bnum, apow, fpow, opts);
+        }
+    };
 
     static Handle<Value>
     Optimize (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1)) ||
-          !(ARG2->IsNumber() || NOU(ARG2)) ||
-          !(ARG3->IsNumber() || NOU(ARG3))) {
+      if (!OptimizeData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       bool success = tchdboptimize(
@@ -1102,33 +1058,16 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <OptimizeAsync>
-    static Handle<Value>
-    OptimizeAsync (const Arguments& args) {
-      HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1)) ||
-          !(ARG2->IsNumber() || NOU(ARG2)) ||
-          !(ARG3->IsNumber() || NOU(ARG3))) {
-        return THROW_BAD_ARGS;
-      }
-      OptimizeData *data = new OptimizeData;
-      data->setCallback(THIS, ARG4);
-      data->bnum = NOU(ARG0) ? -1 : VINT64(ARG0);
-      data->apow = NOU(ARG1) ? -1 : VINT32(ARG1);
-      data->fpow = NOU(ARG2) ? -1 : VINT32(ARG2);
-      data->opts = NOU(ARG3) ? UINT8_MAX : VINT32(ARG3);
-      eio_custom(ExecOptimize, EIO_PRI_DEFAULT, AfterOptimize, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Optimize)
 
-    DEFINE_EXEC (Optimize, OptimizeData,
-        tchdboptimize(data->hdb->db,
-          data->bnum, data->apow, data->fpow, data->opts))
+    class VanishData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbvanish(hdb->db);
+        }
+    };
 
-    DEFINE_AFTER1 (Optimize, OptimizeData)
-    // <\OptimizeAsync>
+    DEFINE_ASYNC(Vanish)
 
     static Handle<Value>
     Vanish (const Arguments& args) {
@@ -1138,28 +1077,22 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <VanishAsync>
-    static Handle<Value>
-    VanishAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecVanish, EIO_PRI_DEFAULT, AfterVanish, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    class CopyData : public AsyncData, public PathDataCore {
+      public:
+        void init (const Arguments& args) {
+          setCallback(THIS, ARG1);
+          setPath(ARG0);
+        }
 
-    DEFINE_EXEC (Vanish, AsyncData,
-        tchdbvanish(data->hdb->db))
-
-    DEFINE_AFTER1 (Vanish, AsyncData)
-    // <VanishAsync>
+        void run () {
+          tchdbcopy(hdb->db, **path);
+        }
+    };
 
     static Handle<Value>
     Copy (const Arguments& args) {
       HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
+      if (!CopyData::checkArgs(args)) {
         return THROW_BAD_ARGS;
       }
       int success = tchdbcopy(
@@ -1168,27 +1101,14 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <CopyAsync>
-    static Handle<Value>
-    CopyAsync (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      PathData *data = new PathData;
-      data->setCallback(THIS, ARG1);
-      data->setPath(ARG0);
-      eio_custom(ExecCopy, EIO_PRI_DEFAULT, AfterCopy, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Copy)
 
-    DEFINE_EXEC (Copy, PathData,
-        tchdbcopy(data->hdb->db, **(data->path)))
-
-    DEFINE_AFTER1 (Copy, PathData)
-    // <\CopyAsync>
+    class TranbeginData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbtranbegin(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Tranbegin (const Arguments& args) {
@@ -1198,22 +1118,14 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <TranbeginAsync>
-    static Handle<Value>
-    TranbeginAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecTranbegin, EIO_PRI_DEFAULT, AfterTranbegin, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Tranbegin)
 
-    DEFINE_EXEC (Tranbegin, AsyncData,
-        tchdbtranbegin(data->hdb->db))
-
-    DEFINE_AFTER1 (Tranbegin, AsyncData)
-    // <TranbeginAsync>
+    class TrancommitData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbtrancommit(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Trancommit (const Arguments& args) {
@@ -1223,22 +1135,14 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <TrancommitAsync>
-    static Handle<Value>
-    TrancommitAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecTrancommit, EIO_PRI_DEFAULT, AfterTrancommit, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_ASYNC(Trancommit)
 
-    DEFINE_EXEC (Trancommit, AsyncData,
-        tchdbtrancommit(data->hdb->db))
-
-    DEFINE_AFTER1 (Trancommit, AsyncData)
-    // <\TrancommitAsync>
+    class TranabortData : public AsyncData, public ArgsDataCore {
+      public:
+        void run () {
+          tchdbtranabort(hdb->db);
+        }
+    };
 
     static Handle<Value>
     Tranabort (const Arguments& args) {
@@ -1248,22 +1152,7 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    // <TranabortAsync>
-    static Handle<Value>
-    TranabortAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData *data = new AsyncData;
-      data->setCallback(THIS, ARG0);
-      eio_custom(ExecTranabort, EIO_PRI_DEFAULT, AfterTranabort, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
-
-    DEFINE_EXEC (Tranabort, AsyncData,
-        tchdbtranabort(data->hdb->db))
-
-    DEFINE_AFTER1 (Tranabort, AsyncData)
-    // <\TranabortAsync>
+    DEFINE_ASYNC(Tranabort)
 
     static Handle<Value>
     Path (const Arguments& args) {
