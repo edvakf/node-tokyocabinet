@@ -50,12 +50,14 @@
     ev_ref(EV_DEFAULT_UC);                                                    \
     return Undefined();                                                       \
   }                                                                           \
+                                                                              \
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
     req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
+                                                                              \
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
@@ -82,18 +84,20 @@
     ev_ref(EV_DEFAULT_UC);                                                    \
     return Undefined();                                                       \
   }                                                                           \
+                                                                              \
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
     req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
+                                                                              \
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
     if (data->hasCallback) {                                                  \
-      data->callCallback(Integer::New(req->result), data->extraReturnValue());\
+      data->callCallback(Integer::New(req->result), data->returnValue());     \
     }                                                                         \
     ev_unref(EV_DEFAULT_UC);                                                  \
     delete data;                                                              \
@@ -247,7 +251,9 @@ class OpenDataCore : public PathDataCore {
     }
 };
 
-class KeyDataCore : public ArgsDataCore {
+// virtual inheritance of KeyDataCore and ValueDataCore from ArgsDataCore
+// together solves ambiguity of checkArgs method of GetDataCore
+class KeyDataCore : public virtual ArgsDataCore {
   protected:
     String::Utf8Value *kbuf;
     int ksiz;
@@ -275,7 +281,7 @@ class VsizDataCore : public KeyDataCore {
 
   public:
     Handle<Value>
-    extraReturnValue () {
+    returnValue () {
       return Number::New(vsiz);
     }
 };
@@ -303,37 +309,23 @@ class PutDataCore : public KeyDataCore {
     }
 };
 
-class RetValDataCore : public ArgsDataCore {
+class ValueDataCore : public virtual ArgsDataCore {
   protected:
     char *vbuf;
     int vsiz;
 
   public:
-    ~RetValDataCore () {
+    ~ValueDataCore () {
       tcfree(vbuf);
     }
 
     Handle<Value>
-    extraReturnValue () {
+    returnValue () {
       return vbuf == NULL ? Null() : String::New(vbuf, vsiz);
     }
 };
 
-class GetDataCore : public KeyDataCore {
-  protected:
-    char *vbuf;
-    int vsiz;
-
-  public:
-    ~GetDataCore () {
-      tcfree(vbuf);
-    }
-
-    Handle<Value>
-    extraReturnValue () {
-      return vbuf == NULL ? Null() : String::New(vbuf, vsiz);
-    }
-};
+class GetDataCore : public KeyDataCore, public ValueDataCore {};
 
 class GetListDataCore : public KeyDataCore {
   protected:
@@ -345,7 +337,7 @@ class GetListDataCore : public KeyDataCore {
     }
 
     Handle<Value>
-    extraReturnValue () {
+    returnValue () {
       return tclisttoary(list);
     }
 };
@@ -366,7 +358,7 @@ class AddintDataCore : public KeyDataCore {
     }
 
     Handle<Value>
-    extraReturnValue () {
+    returnValue () {
       return num == INT_MIN ? Null() : Integer::New(num);
     }
 };
@@ -382,7 +374,7 @@ class AdddoubleDataCore : public KeyDataCore {
     }
 
     Handle<Value>
-    extraReturnValue () {
+    returnValue () {
       return isnan(num) ? Null() : Number::New(num);
     }
 };
@@ -524,6 +516,7 @@ class HDB : ObjectWrap {
           setCallback(THIS, ARG0);
         }
 
+        // maybe use 'This' as 'this' of callback function. not sure yet.
         void
         setCallback (Handle<Object> This, Handle<Value> cb) {
           AsyncDataCore::setCallback(cb);
@@ -553,11 +546,11 @@ class HDB : ObjectWrap {
     static Handle<Value>
     Errmsg (const Arguments& args) {
       HandleScope scope;
-      if (!(NOU(ARG0) || ARG0->IsNumber())) {
+      if (!(ARG0->IsUndefined() || ARG0->IsNumber())) {
         return THROW_BAD_ARGS;
       }
       const char *msg = tchdberrmsg(
-          NOU(ARG0) ? tchdbecode(Backend(THIS)) : VINT32(ARG0));
+          ARG0->IsUndefined() ? tchdbecode(Backend(THIS)) : VINT32(ARG0));
       return String::New(msg);
     }
 
@@ -570,6 +563,7 @@ class HDB : ObjectWrap {
 
     static Handle<Value>
     Setmutex (const Arguments& args) {
+      HandleScope scope;
       bool success = tchdbsetmutex(
           Backend(THIS));
       return Boolean::New(success);
@@ -601,7 +595,7 @@ class HDB : ObjectWrap {
       }
       bool success = tchdbsetcache(
           Backend(THIS),
-          NOU(ARG0) ? -1 : VINT32(ARG0));
+          ARG0->IsUndefined() ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
 
@@ -613,7 +607,7 @@ class HDB : ObjectWrap {
       }
       bool success = tchdbsetxmsiz(
           Backend(THIS),
-          NOU(ARG0) ? -1 : VINT64(ARG0));
+          ARG0->IsUndefined() ? -1 : VINT64(ARG0));
       return Boolean::New(success);
     }
 
@@ -625,7 +619,7 @@ class HDB : ObjectWrap {
       }
       bool success = tchdbsetdfunit(
           Backend(THIS),
-          NOU(ARG0) ? -1 : VINT32(ARG0));
+          ARG0->IsUndefined() ? -1 : VINT32(ARG0));
       return Boolean::New(success);
     }
 
@@ -883,7 +877,7 @@ class HDB : ObjectWrap {
 
     DEFINE_ASYNC(Iterinit)
 
-    class IternextData : public AsyncData, public RetValDataCore {
+    class IternextData : public AsyncData, public ValueDataCore {
       public:
         bool run () {
           vbuf = static_cast<char *>(tchdbiternext(hdb->db, &vsiz));
