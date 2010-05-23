@@ -186,17 +186,14 @@ class AsyncDataCore {
     inline void
     callCallback (Handle<Value> arg0) {
       HandleScope scope;
-      Handle<Value> args[1];
-      args[0] = arg0;
+      Handle<Value> args[1] = {arg0};
       callback(1, args);
     }
 
     inline void
     callCallback (Handle<Value> arg0, Handle<Value>arg1) {
       HandleScope scope;
-      Handle<Value> args[2];
-      args[0] = arg0;
-      args[1] = arg1;
+      Handle<Value> args[2] = {arg0, arg1};
       callback(2, args);
     }
 };
