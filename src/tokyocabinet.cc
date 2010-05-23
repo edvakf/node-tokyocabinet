@@ -37,7 +37,7 @@
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
 
 /* async method blueprint */
-#define DEFINE_ASYNC(name)                                                    \
+#define DEFINE_ASYNC_FUNC(name)                                               \
   static Handle<Value>                                                        \
   name##Async (const Arguments& args) {                                       \
     HandleScope scope;                                                        \
@@ -50,14 +50,16 @@
     ev_ref(EV_DEFAULT_UC);                                                    \
     return Undefined();                                                       \
   }                                                                           \
-                                                                              \
+
+#define DEFINE_ASYNC_EXEC(name)                                               \
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##Data *data = static_cast<name##Data *>(req->data);                  \
     req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
-                                                                              \
+
+#define DEFINE_ASYNC_AFTER(name)                                              \
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
@@ -70,28 +72,7 @@
     return 0;                                                                 \
   }
 
-/* async method with an extra return value to the callback */
-#define DEFINE_ASYNC2(name)                                                   \
-  static Handle<Value>                                                        \
-  name##Async (const Arguments& args) {                                       \
-    HandleScope scope;                                                        \
-    if (!name##Data::checkArgs(args)) {                                       \
-      return THROW_BAD_ARGS;                                                  \
-    }                                                                         \
-    name##Data *data = new name##Data;                                        \
-    data->init(args);                                                         \
-    eio_custom(Exec##name, EIO_PRI_DEFAULT, After##name, data);               \
-    ev_ref(EV_DEFAULT_UC);                                                    \
-    return Undefined();                                                       \
-  }                                                                           \
-                                                                              \
-  static int                                                                  \
-  Exec##name (eio_req *req) {                                                 \
-    name##Data *data = static_cast<name##Data *>(req->data);                  \
-    req->result = data->run() ? TCESUCCESS : data->ecode();                   \
-    return 0;                                                                 \
-  }                                                                           \
-                                                                              \
+#define DEFINE_ASYNC_AFTER2(name)                                             \
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
@@ -103,6 +84,16 @@
     delete data;                                                              \
     return 0;                                                                 \
   }
+
+#define DEFINE_ASYNC(name)                                                    \
+  DEFINE_ASYNC_FUNC(name)                                                     \
+  DEFINE_ASYNC_EXEC(name)                                                     \
+  DEFINE_ASYNC_AFTER(name)                                                    \
+
+#define DEFINE_ASYNC2(name)                                                   \
+  DEFINE_ASYNC_FUNC(name)                                                     \
+  DEFINE_ASYNC_EXEC(name)                                                     \
+  DEFINE_ASYNC_AFTER2(name)                                                   \
 
 using namespace v8;
 using namespace node;
