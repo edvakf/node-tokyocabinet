@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <assert.h>
 #include <iostream>
 
 #define THROW_BAD_ARGS \
@@ -36,6 +37,30 @@
 // null or undefined
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
 
+/* sync method blueprint */
+#define DEFINE_SYNC(name)                                                     \
+  static Handle<Value>                                                        \
+  name (const Arguments& args) {                                              \
+    HandleScope scope;                                                        \
+    if (!name##Data::checkArgs(args)) {                                       \
+      return THROW_BAD_ARGS;                                                  \
+    }                                                                         \
+    return Boolean::New(name##Data(args).run());                              \
+  }                                                                           \
+
+/* when there is an extra value to return */
+#define DEFINE_SYNC2(name)                                                    \
+  static Handle<Value>                                                        \
+  name (const Arguments& args) {                                              \
+    HandleScope scope;                                                        \
+    if (!name##Data::checkArgs(args)) {                                       \
+      return THROW_BAD_ARGS;                                                  \
+    }                                                                         \
+    name##Data data(args);                                                    \
+    data.run();                                                               \
+    return data.returnValue();                                                \
+  }                                                                           \
+
 /* async method blueprint */
 #define DEFINE_ASYNC_FUNC(name)                                               \
   static Handle<Value>                                                        \
@@ -44,8 +69,7 @@
     if (!name##Data::checkArgs(args)) {                                       \
       return THROW_BAD_ARGS;                                                  \
     }                                                                         \
-    name##Data *data = new name##Data;                                        \
-    data->init(args);                                                         \
+    name##AsyncData *data = new name##AsyncData(args);                        \
     eio_custom(Exec##name, EIO_PRI_DEFAULT, After##name, data);               \
     ev_ref(EV_DEFAULT_UC);                                                    \
     return Undefined();                                                       \
@@ -54,7 +78,7 @@
 #define DEFINE_ASYNC_EXEC(name)                                               \
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
-    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    name##AsyncData *data = static_cast<name##AsyncData *>(req->data);        \
     req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
   }                                                                           \
@@ -63,7 +87,7 @@
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
-    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    name##AsyncData *data = static_cast<name##AsyncData *>(req->data);        \
     if (data->hasCallback) {                                                  \
       data->callCallback(Integer::New(req->result));                          \
     }                                                                         \
@@ -72,11 +96,12 @@
     return 0;                                                                 \
   }
 
+/* when there is an extra value to return */
 #define DEFINE_ASYNC_AFTER2(name)                                             \
   static int                                                                  \
   After##name (eio_req *req) {                                                \
     HandleScope scope;                                                        \
-    name##Data *data = static_cast<name##Data *>(req->data);                  \
+    name##AsyncData *data = static_cast<name##AsyncData *>(req->data);        \
     if (data->hasCallback) {                                                  \
       data->callCallback(Integer::New(req->result), data->returnValue());     \
     }                                                                         \
@@ -159,8 +184,7 @@ class AsyncDataCore {
     Persistent<Function> cb;
     bool hasCallback;
 
-    void
-    setCallback (Handle<Value> cb_) {
+    AsyncDataCore (Handle<Value> cb_) {
       HandleScope scope;
       if (cb_->IsFunction()) {
         hasCallback = true;
@@ -199,7 +223,7 @@ class AsyncDataCore {
 };
 
 // arguments data that will be multiply inherited to make actual async objects
-class ArgsDataCore {
+class ArgsData {
   public:
     static bool
     checkArgs (const Arguments& args) {
@@ -207,19 +231,12 @@ class ArgsDataCore {
     }
 };
 
-class PathDataCore : public ArgsDataCore {
+class PathDataCore : public ArgsData {
   protected:
-    String::Utf8Value *path;
+    String::Utf8Value path;
 
   public:
-    void
-    setPath (Handle<Value> p) {
-      path = new String::Utf8Value(p);
-    }
-
-    ~PathDataCore () {
-      delete path;
-    }
+    PathDataCore (Handle<Value> path_) : path(path_) {}
 
     static bool
     checkArgs (const Arguments& args) {
@@ -232,6 +249,8 @@ class OpenDataCore : public PathDataCore {
     int omode;
 
   public:
+    OpenDataCore (Handle<Value> path_) : PathDataCore(path_) {}
+
     static bool
     checkArgs (const Arguments& args) {
       return PathDataCore::checkArgs(args) &&
@@ -239,27 +258,16 @@ class OpenDataCore : public PathDataCore {
     }
 };
 
-// virtual inheritance of KeyDataCore and ValueDataCore from ArgsDataCore
+// virtual inheritance of KeyDataCore and ValueDataCore from ArgsData
 // together solves ambiguity of checkArgs method of GetDataCore
-class KeyDataCore : public virtual ArgsDataCore {
+class KeyDataCore : public virtual ArgsData {
   protected:
-    String::Utf8Value *kbuf;
+    String::Utf8Value kbuf;
     int ksiz;
 
   public:
-    void
-    setKey (Handle<Value> key) {
-      kbuf = new String::Utf8Value(key);
-      ksiz = kbuf->length();
-    }
-
-    ~KeyDataCore () {
-      delete kbuf;
-    }
-
-    static bool
-    checkArgs (const Arguments& args) {
-      return ARG0->IsString();
+    KeyDataCore (Handle<Value> key) : kbuf(key) {
+      ksiz = kbuf.length();
     }
 };
 
@@ -268,6 +276,8 @@ class VsizDataCore : public KeyDataCore {
     int vsiz;
 
   public:
+    VsizDataCore (Handle<Value> key) : KeyDataCore(key) {}
+
     Handle<Value>
     returnValue () {
       return Number::New(vsiz);
@@ -276,28 +286,17 @@ class VsizDataCore : public KeyDataCore {
 
 class PutDataCore : public KeyDataCore {
   protected:
-    String::Utf8Value *vbuf;
+    String::Utf8Value vbuf;
     int vsiz;
 
   public:
-    void
-    setKeyVal (Handle<Value> key, Handle<Value> value) {
-      this->setKey(key);
-      vbuf = new String::Utf8Value(value);
-      vsiz = vbuf->length();
-    }
-
-    ~PutDataCore () {
-      delete vbuf;
-    }
-
-    static bool
-    checkArgs (const Arguments& args) {
-      return KeyDataCore::checkArgs(args) && ARG1->IsString();
+    PutDataCore (Handle<Value> key, Handle<Value> val) 
+        : vbuf(val), KeyDataCore(key) {
+      vsiz = vbuf.length();
     }
 };
 
-class ValueDataCore : public virtual ArgsDataCore {
+class ValueDataCore : public virtual ArgsData {
   protected:
     char *vbuf;
     int vsiz;
@@ -313,13 +312,18 @@ class ValueDataCore : public virtual ArgsDataCore {
     }
 };
 
-class GetDataCore : public KeyDataCore, public ValueDataCore {};
+class GetDataCore : public KeyDataCore, public ValueDataCore {
+  public:
+    GetDataCore (Handle<Value> key) : KeyDataCore(key) {}
+};
 
 class GetListDataCore : public KeyDataCore {
   protected:
     TCLIST *list;
 
   public:
+    GetListDataCore (Handle<Value> key) : KeyDataCore(key) {}
+
     ~GetListDataCore () {
       tclistdel(list);
     }
@@ -333,6 +337,17 @@ class GetListDataCore : public KeyDataCore {
 class FwmkeysDataCore : public GetListDataCore {
   protected:
     int max;
+
+  public:
+    FwmkeysDataCore (Handle<Value> key, Handle<Value> max_)
+        : GetListDataCore(key) {
+      max = max_->Int32Value();
+    }
+
+    static bool
+    checkArgs (const Arguments& args) {
+      return ARG1->IsNumber();
+    }
 };
 
 class AddintDataCore : public KeyDataCore {
@@ -340,9 +355,14 @@ class AddintDataCore : public KeyDataCore {
     int num;
 
   public:
+    AddintDataCore (Handle<Value> key, Handle<Value> num_) 
+        : KeyDataCore(key) {
+      num = num_->Int32Value();
+    }
+
     static bool
     checkArgs (const Arguments& args) {
-      return KeyDataCore::checkArgs(args) && ARG1->IsNumber();
+      return ARG1->IsNumber();
     }
 
     Handle<Value>
@@ -356,9 +376,14 @@ class AdddoubleDataCore : public KeyDataCore {
     double num;
 
   public:
+    AdddoubleDataCore (Handle<Value> key, Handle<Value> num_) 
+        : KeyDataCore(key) {
+      num = num_->NumberValue();
+    }
+
     static bool
     checkArgs (const Arguments& args) {
-      return KeyDataCore::checkArgs(args) && ARG1->IsNumber();
+      return ARG1->IsNumber();
     }
 
     Handle<Value>
@@ -494,32 +519,37 @@ class HDB : ObjectWrap {
   private:
     TCHDB *db;
 
-    class AsyncData : public AsyncDataCore {
-      public:
+    class ThisData {
+      protected:
         HDB *hdb;
 
-        // init() may be overridden by ArgsData variants
-        void
-        init (const Arguments& args) {
-          setCallback(THIS, ARG0);
+        /* only used from AsyncData(Handle<Value>) constructor */
+        ThisData () {}
+
+      public:
+        ThisData (Handle<Object> This) {
+          hdb = Unwrap(This);
         }
 
-        // maybe use 'This' as 'this' of callback function. not sure yet.
-        void
-        setCallback (Handle<Object> This, Handle<Value> cb) {
-          AsyncDataCore::setCallback(cb);
-          hdb = Unwrap(This);
+        int
+        ecode () {
+          return tchdbecode(hdb->db);
+        }
+    };
+
+    class AsyncData : public virtual ThisData, public AsyncDataCore {
+      public:
+        /* make sure ThisData is already initialized with This arg.
+         * see, for example, OpenAsyncData constructor 
+         * note: it implicitly calls ArgsData(void) constructor */
+        AsyncData (Handle<Value> cb_) : AsyncDataCore (cb_) {
+          assert(hdb);
           hdb->Ref();
         }
 
         virtual
         ~AsyncData () {
           hdb->Unref();
-        }
-
-        int
-        ecode () {
-          return tchdbecode(hdb->db);
         }
     };
 
@@ -557,23 +587,34 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    static Handle<Value>
-    Tune (const Arguments& args) {
-      HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1)) ||
-          !(ARG2->IsNumber() || NOU(ARG2)) ||
-          !(ARG3->IsNumber() || NOU(ARG3))) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbtune(
-          Backend(THIS),
-          NOU(ARG0) ? -1 : VINT64(ARG0),
-          NOU(ARG1) ? -1 : VINT32(ARG1),
-          NOU(ARG2) ? -1 : VINT32(ARG2),
-          NOU(ARG3) ? -1 : VINT32(ARG3));
-      return Boolean::New(success);
-    }
+    class TuneData : public ArgsData, public virtual ThisData {
+      protected:
+        int64_t bnum;
+        int8_t apow;
+        int8_t fpow;
+        uint8_t opts;
+
+      public:
+        static bool checkArgs (const Arguments& args) {
+          return (ARG0->IsNumber() || NOU(ARG0)) &&
+                 (ARG1->IsNumber() || NOU(ARG1)) &&
+                 (ARG2->IsNumber() || NOU(ARG2)) &&
+                 (ARG3->IsNumber() || NOU(ARG3));
+        }
+
+        TuneData (const Arguments& args) : ThisData(THIS) {
+          bnum = NOU(ARG0) ? -1 : ARG0->IntegerValue();
+          apow = NOU(ARG1) ? -1 : ARG1->Int32Value();
+          fpow = NOU(ARG2) ? -1 : ARG2->Int32Value();
+          opts = NOU(ARG3) ? UINT8_MAX : ARG3->Int32Value();
+        }
+
+        bool run () {
+          return tchdbtune(hdb->db, bnum, apow, fpow, opts);
+        }
+    };
+
+    DEFINE_SYNC(Tune)
 
     static Handle<Value>
     Setcache (const Arguments& args) {
@@ -611,531 +652,420 @@ class HDB : ObjectWrap {
       return Boolean::New(success);
     }
 
-    class OpenData : public AsyncData, public OpenDataCore {
+    class OpenData : public OpenDataCore, public virtual ThisData  {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG2);
-          setPath(ARG0);
+        OpenData (const Arguments& args)
+            : OpenDataCore(ARG0), ThisData(THIS) {
           omode = ARG1->IsUndefined() ? HDBOREADER : VINT32(ARG1);
         }
 
         bool run () {
-          return tchdbopen(hdb->db, **(path), omode);
+          return tchdbopen(hdb->db, *path, omode);
         }
     };
 
-    static Handle<Value>
-    Open (const Arguments& args) {
-      HandleScope scope;
-      if (!OpenData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbopen(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          NOU(ARG1) ? HDBOREADER : VINT32(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Open)
+
+    class OpenAsyncData : public OpenData, public AsyncData {
+      public:
+        OpenAsyncData (const Arguments& args)
+          : OpenData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Open)
 
-    class CloseData : public AsyncData, public ArgsDataCore {
+    class CloseData : public ArgsData, public virtual ThisData {
       public:
+        CloseData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbclose(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Close (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbclose(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Close)
+
+    class CloseAsyncData : public CloseData, public AsyncData {
+      public:
+        CloseAsyncData (const Arguments& args)
+          : CloseData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Close)
 
-    class PutData : public AsyncData, public PutDataCore {
+    class PutData : public PutDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG2);
-          setKeyVal(ARG0, ARG1);
-        }
+        PutData (const Arguments& args)
+          : PutDataCore(ARG0, ARG1), ThisData(THIS) {}
 
         bool run () {
-          return tchdbput(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
+          return tchdbput(hdb->db, *kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
-    static Handle<Value>
-    Put (const Arguments& args) {
-      HandleScope scope;
-      if (!PutData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbput(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Put)
+
+    class PutAsyncData : public PutData, public AsyncData {
+      public:
+        PutAsyncData (const Arguments& args)
+          : PutData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Put)
 
     class PutkeepData : public PutData {
       public:
+        PutkeepData (const Arguments &args) : PutData(args) {}
+
         bool run () {
-          return tchdbputkeep(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
+          return tchdbputkeep(hdb->db, *kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
-    static Handle<Value>
-    Putkeep (const Arguments& args) {
-      HandleScope scope;
-      if (!PutkeepData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbputkeep(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Putkeep)
+
+    class PutkeepAsyncData : public PutkeepData, public AsyncData {
+      public:
+        PutkeepAsyncData (const Arguments& args)
+          : PutkeepData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Putkeep)
 
     class PutcatData : public PutData {
       public:
+        PutcatData (const Arguments &args) : PutData(args) {}
+
         bool run () {
-          return tchdbputcat(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
+          return tchdbputcat(hdb->db, *kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
-    static Handle<Value>
-    Putcat (const Arguments& args) {
-      HandleScope scope;
-      if (!PutcatData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbputcat(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Putcat)
+
+    class PutcatAsyncData : public PutcatData, public AsyncData {
+      public:
+        PutcatAsyncData (const Arguments& args)
+          : PutcatData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Putcat)
 
     class PutasyncData : public PutData {
       public:
+        PutasyncData (const Arguments &args) : PutData(args) {}
+
         bool run () {
-          return tchdbputasync(hdb->db, **kbuf, ksiz, **vbuf, vsiz);
+          return tchdbputasync(hdb->db, *kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
-    static Handle<Value>
-    Putasync (const Arguments& args) {
-      HandleScope scope;
-      if (!PutasyncData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbputasync(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Putasync)
+
+    class PutasyncAsyncData : public PutasyncData, public AsyncData {
+      public:
+        PutasyncAsyncData (const Arguments& args)
+          : PutasyncData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Putasync)
 
-    class OutData : public AsyncData, public KeyDataCore {
+    class OutData : public KeyDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG1);
-          setKey(ARG0);
-        }
+        OutData (const Arguments &args) 
+          : KeyDataCore(ARG0), ThisData(THIS) {}
 
         bool run () {
-          return tchdbout(hdb->db, **(kbuf), ksiz);
+          return tchdbout(hdb->db, *kbuf, ksiz);
         }
     };
 
-    static Handle<Value>
-    Out (const Arguments& args) {
-      HandleScope scope;
-      if (!OutData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdbout(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Out)
+
+    class OutAsyncData : public OutData, public AsyncData {
+      public:
+        OutAsyncData (const Arguments& args)
+          : OutData(args), AsyncData(ARG1), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Out)
 
-    class GetData : public AsyncData, public GetDataCore {
+    class GetData : public GetDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG1);
-          setKey(ARG0);
-        }
+        GetData (const Arguments &args) 
+          : GetDataCore(ARG0), ThisData(THIS) {}
 
         bool run () {
-          vbuf = static_cast<char *>(tchdbget(hdb->db, **kbuf, ksiz, &vsiz));
+          vbuf = static_cast<char *>(tchdbget(hdb->db, *kbuf, ksiz, &vsiz));
           return vbuf != NULL;
         }
     };
 
-    static Handle<Value>
-    Get (const Arguments& args) {
-      HandleScope scope;
-      if (!GetData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      int vsiz;
-      char *vstr = static_cast<char *>(tchdbget(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          &vsiz));
-      if (vstr == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(vstr, vsiz);
-        tcfree(vstr);
-        return ret;
-      }
-    }
+    DEFINE_SYNC2(Get)
+
+    class GetAsyncData : public GetData, public AsyncData {
+      public:
+        GetAsyncData (const Arguments& args)
+          : GetData(args), AsyncData(ARG1), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Get)
 
-    class VsizData : public AsyncData, public VsizDataCore {
+    class VsizData : public VsizDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG1);
-          setKey(ARG0);
-        }
+        VsizData (const Arguments &args) 
+          : VsizDataCore(ARG0), ThisData(THIS) {}
 
         bool run () {
-          vsiz = tchdbvsiz(hdb->db, **kbuf, ksiz);
+          vsiz = tchdbvsiz(hdb->db, *kbuf, ksiz);
           return vsiz != -1;
         }
     };
 
-    static Handle<Value>
-    Vsiz (const Arguments& args) {
-      HandleScope scope;
-      if (!VsizData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      int vsiz = tchdbvsiz(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0));
-      return Integer::New(vsiz);
-    }
+    DEFINE_SYNC2(Vsiz)
+
+    class VsizAsyncData : public VsizData, public AsyncData {
+      public:
+        VsizAsyncData (const Arguments& args)
+          : VsizData(args), AsyncData(ARG1), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Vsiz)
 
-    class IterinitData : public AsyncData, public ArgsDataCore {
+    class IterinitData : public ArgsData, public virtual ThisData {
       public:
+        IterinitData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbiterinit(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Iterinit (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbiterinit(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Iterinit)
+
+    class IterinitAsyncData : public IterinitData, public AsyncData {
+      public:
+        IterinitAsyncData (const Arguments& args)
+          : IterinitData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Iterinit)
 
-    class IternextData : public AsyncData, public ValueDataCore {
+    class IternextData : public ValueDataCore, public virtual ThisData {
       public:
+        IternextData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           vbuf = static_cast<char *>(tchdbiternext(hdb->db, &vsiz));
           return vbuf != NULL;
         }
     };
 
-    static Handle<Value>
-    Iternext (const Arguments& args) {
-      HandleScope scope;
-      int vsiz;
-      char *vstr = static_cast<char *>(tchdbiternext(
-          Backend(THIS),
-          &vsiz));
-      if (vstr == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(vstr, vsiz);
-        tcfree(vstr);
-        return ret;
-      }
-    }
+    DEFINE_SYNC2(Iternext)
+
+    class IternextAsyncData : public IternextData, public AsyncData {
+      public:
+        IternextAsyncData (const Arguments& args)
+          : IternextData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Iternext)
 
-    class FwmkeysData : public AsyncData, public FwmkeysDataCore {
+    class FwmkeysData : public FwmkeysDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG2);
-          setKey(ARG0);
-          max = NOU(ARG1) ? -1 : VINT32(ARG1);
-        }
+        FwmkeysData (const Arguments& args) 
+          : FwmkeysDataCore(ARG0, ARG1), ThisData(THIS) {}
 
         bool run () {
-          list = tchdbfwmkeys(hdb->db, kbuf, ksiz, max);
+          list = tchdbfwmkeys(hdb->db, *kbuf, ksiz, max);
           return true;
         }
     };
 
-    static Handle<Value>
-    Fwmkeys (const Arguments& args) {
-      HandleScope scope;
-      if (!FwmkeysData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      TCLIST *keys = tchdbfwmkeys(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          NOU(ARG1) ? -1 : VINT32(ARG1));
-      Local<Array> ary = tclisttoary(keys);
-      tclistdel(keys);
-      return ary;
-    }
+    DEFINE_SYNC2(Fwmkeys)
+
+    class FwmkeysAsyncData : public FwmkeysData, public AsyncData {
+      public:
+        FwmkeysAsyncData (const Arguments& args)
+          : FwmkeysData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Fwmkeys)
 
-    class AddintData : public AsyncData, public AddintDataCore {
+    class AddintData : public AddintDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG2);
-          setKey(ARG0);
-          num = VINT32(ARG1);
-        }
+        AddintData (const Arguments& args) 
+          : AddintDataCore(ARG0, ARG1), ThisData(THIS) {}
 
         bool run () {
-          num = tchdbaddint(hdb->db, kbuf, ksiz, num);
+          num = tchdbaddint(hdb->db, *kbuf, ksiz, num);
           return num != INT_MIN;
         }
     };
 
-    static Handle<Value>
-    Addint (const Arguments& args) {
-      HandleScope scope;
-      if (!AddintData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      int sum = tchdbaddint(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VINT32(ARG1));
-      return sum == INT_MIN ? Null() : Integer::New(sum);
-    }
+    DEFINE_SYNC2(Addint)
+
+    class AddintAsyncData : public AddintData, public AsyncData {
+      public:
+        AddintAsyncData (const Arguments& args)
+          : AddintData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Addint)
 
-    class AdddoubleData : public AsyncData, public AdddoubleDataCore {
+    class AdddoubleData : public AdddoubleDataCore, public virtual ThisData {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG2);
-          setKey(ARG0);
-          num = VINT32(ARG1);
-        }
+        AdddoubleData (const Arguments& args) 
+          : AdddoubleDataCore(ARG0, ARG1), ThisData(THIS) {}
 
         bool run () {
-          num = tchdbadddouble(hdb->db, kbuf, ksiz, num);
+          num = tchdbadddouble(hdb->db, *kbuf, ksiz, num);
           return !isnan(num);
         }
     };
 
-    static Handle<Value>
-    Adddouble (const Arguments& args) {
-      HandleScope scope;
-      if (!AdddoubleData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      double sum = tchdbadddouble(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VDOUBLE(ARG1));
-      return isnan(sum) ? Null() : Number::New(sum);
-    }
+    DEFINE_SYNC2(Adddouble)
+
+    class AdddoubleAsyncData : public AdddoubleData, public AsyncData {
+      public:
+        AdddoubleAsyncData (const Arguments& args)
+          : AdddoubleData(args), AsyncData(ARG2), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC2(Adddouble)
 
-    class SyncData : public AsyncData, public ArgsDataCore {
+    class SyncData : public ArgsData, public virtual ThisData {
       public:
+        SyncData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbsync(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Sync (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbsync(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Sync)
+
+    class SyncAsyncData : public SyncData, public AsyncData {
+      public:
+        SyncAsyncData (const Arguments& args)
+          : SyncData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Sync)
 
-    class OptimizeData : public AsyncData, public ArgsDataCore {
-      private:
-        int64_t bnum;
-        int8_t apow;
-        int8_t fpow;
-        uint8_t opts;
-
+    class OptimizeData : public TuneData {
       public:
-        static bool checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || NOU(ARG0)) &&
-                 (ARG1->IsNumber() || NOU(ARG1)) &&
-                 (ARG2->IsNumber() || NOU(ARG2)) &&
-                 (ARG3->IsNumber() || NOU(ARG3));
-        }
-
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG4);
-          bnum = NOU(ARG0) ? -1 : VINT64(ARG0);
-          apow = NOU(ARG1) ? -1 : VINT32(ARG1);
-          fpow = NOU(ARG2) ? -1 : VINT32(ARG2);
-          opts = NOU(ARG3) ? UINT8_MAX : VINT32(ARG3);
-        }
+        OptimizeData (const Arguments& args) : TuneData(args) {}
 
         bool run () {
           return tchdboptimize(hdb->db, bnum, apow, fpow, opts);
         }
     };
 
-    static Handle<Value>
-    Optimize (const Arguments& args) {
-      HandleScope scope;
-      if (!OptimizeData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tchdboptimize(
-          Backend(THIS),
-          NOU(ARG0) ? -1 : VINT64(ARG0),
-          NOU(ARG1) ? -1 : VINT32(ARG1),
-          NOU(ARG2) ? -1 : VINT32(ARG2),
-          NOU(ARG3) ? UINT8_MAX : VINT32(ARG3));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Optimize)
+
+    class OptimizeAsyncData : public OptimizeData, public AsyncData {
+      public:
+        OptimizeAsyncData (const Arguments& args)
+          : OptimizeData(args), AsyncData(ARG4), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Optimize)
 
-    class VanishData : public AsyncData, public ArgsDataCore {
+    class VanishData : public ArgsData, public virtual ThisData {
       public:
+        VanishData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbvanish(hdb->db);
         }
     };
 
+    DEFINE_SYNC(Vanish)
+
+    class VanishAsyncData : public VanishData, public AsyncData {
+      public:
+        VanishAsyncData (const Arguments& args)
+          : VanishData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
+
     DEFINE_ASYNC(Vanish)
 
-    static Handle<Value>
-    Vanish (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbvanish(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
-
-    class CopyData : public AsyncData, public PathDataCore {
+    class CopyData : public PathDataCore, public virtual ThisData  {
       public:
-        void init (const Arguments& args) {
-          setCallback(THIS, ARG1);
-          setPath(ARG0);
+        CopyData (const Arguments& args)
+            : PathDataCore(ARG0), ThisData(THIS) {
         }
 
         bool run () {
-          return tchdbcopy(hdb->db, **path);
+          return tchdbcopy(hdb->db, *path);
         }
     };
 
-    static Handle<Value>
-    Copy (const Arguments& args) {
-      HandleScope scope;
-      if (!CopyData::checkArgs(args)) {
-        return THROW_BAD_ARGS;
-      }
-      int success = tchdbcopy(
-          Backend(THIS),
-          VSTRPTR(ARG0));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Copy)
+
+    class CopyAsyncData : public CopyData, public AsyncData {
+      public:
+        CopyAsyncData (const Arguments& args)
+          : CopyData(args), AsyncData(ARG1), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Copy)
 
-    class TranbeginData : public AsyncData, public ArgsDataCore {
+    class TranbeginData : public ArgsData, public virtual ThisData {
       public:
+        TranbeginData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbtranbegin(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Tranbegin (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbtranbegin(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Tranbegin)
+
+    class TranbeginAsyncData : public TranbeginData, public AsyncData {
+      public:
+        TranbeginAsyncData (const Arguments& args)
+          : TranbeginData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Tranbegin)
 
-    class TrancommitData : public AsyncData, public ArgsDataCore {
+    class TrancommitData : public ArgsData, public virtual ThisData {
       public:
+        TrancommitData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbtrancommit(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Trancommit (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbtrancommit(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Trancommit)
+
+    class TrancommitAsyncData : public TrancommitData, public AsyncData {
+      public:
+        TrancommitAsyncData (const Arguments& args)
+          : TrancommitData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Trancommit)
 
-    class TranabortData : public AsyncData, public ArgsDataCore {
+    class TranabortData : public ArgsData, public virtual ThisData {
       public:
+        TranabortData (const Arguments& args) : ThisData(THIS) {}
+
         bool run () {
           return tchdbtranabort(hdb->db);
         }
     };
 
-    static Handle<Value>
-    Tranabort (const Arguments& args) {
-      HandleScope scope;
-      bool success = tchdbtranabort(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Tranabort)
+
+    class TranabortAsyncData : public TranabortData, public AsyncData {
+      public:
+        TranabortAsyncData (const Arguments& args)
+          : TranabortData(args), AsyncData(ARG0), ThisData(THIS) {}
+    };
 
     DEFINE_ASYNC(Tranabort)
 
