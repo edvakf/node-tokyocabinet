@@ -123,6 +123,7 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
 #define DEFINE_ASYNC_FUNC(name)                                               \
   static Handle<Value>                                                        \
   name##Async (const Arguments& args) {                                       \
+    HandleScope scope;                                                        \
     if (!name##Data::checkArgs(args)) {                                       \
       return THROW_BAD_ARGS;                                                  \
     }                                                                         \
@@ -206,7 +207,7 @@ inline void set_ecodes (const Handle<FunctionTemplate> tmpl) {
 }
 
 // Database wrapper (interfaces for database objects, all included)
-class DBWrap : public ObjectWrap {
+class TCWrap : public ObjectWrap {
   public:
     // these methods must be overridden in individual DB classes
     virtual int Ecode () { assert(false); }
@@ -253,7 +254,7 @@ class DBWrap : public ObjectWrap {
   protected:
     class ArgsData {
       protected:
-        DBWrap *db;
+        TCWrap *tcw;
 
         /* This is defined only because AsyncData(Handle<Value>) constructor 
          * gives compile error without this, but in fact AsyncData does not
@@ -269,12 +270,12 @@ class DBWrap : public ObjectWrap {
         }
 
         ArgsData (const Arguments& args) {
-          db = Unwrap<DBWrap>(args.This());
+          tcw = Unwrap<TCWrap>(args.This());
         }
 
         int
         ecode () {
-          return db->Ecode();
+          return tcw->Ecode();
         }
     };
 
@@ -285,8 +286,8 @@ class DBWrap : public ObjectWrap {
 
         AsyncData (Handle<Value> cb_) {
           HandleScope scope;
-          assert(db); // make sure ArgsData is already initialized with This value
-          db->Ref();
+          assert(tcw); // make sure ArgsData is already initialized with This value
+          tcw->Ref();
           if (cb_->IsFunction()) {
             hasCallback = true;
             cb = Persistent<Function>::New(Handle<Function>::Cast(cb_));
@@ -297,7 +298,7 @@ class DBWrap : public ObjectWrap {
 
         virtual 
         ~AsyncData () {
-          db->Unref();
+          tcw->Unref();
           cb.Dispose();
         }
 
@@ -333,7 +334,7 @@ class DBWrap : public ObjectWrap {
         EcodeData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          ecode = db->Ecode();
+          ecode = tcw->Ecode();
           return true;
         }
 
@@ -350,12 +351,12 @@ class DBWrap : public ObjectWrap {
         const char *msg;
 
         ErrmsgData (const Arguments& args) : ArgsData(args) {
-          ecode = ARG0->IsNumber() ? ARG0->Int32Value() : db->Ecode();
+          ecode = ARG0->IsNumber() ? ARG0->Int32Value() : tcw->Ecode();
         }
 
         bool 
         run () {
-          msg = db->Errmsg(ecode);
+          msg = tcw->Errmsg(ecode);
           return true;
         }
 
@@ -376,7 +377,7 @@ class DBWrap : public ObjectWrap {
         SetmutexData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Setmutex();
+          return tcw->Setmutex();
         }
     };
 
@@ -396,7 +397,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Setxmsiz(xmsiz);
+          return tcw->Setxmsiz(xmsiz);
         }
     };
 
@@ -416,7 +417,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Setdfunit(dfunit);
+          return tcw->Setdfunit(dfunit);
         }
     };
 
@@ -438,7 +439,7 @@ class DBWrap : public ObjectWrap {
         CloseData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Close();
+          return tcw->Close();
         }
     };
 
@@ -471,7 +472,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Put(*kbuf, ksiz, *vbuf, vsiz);
+          return tcw->Put(*kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
@@ -487,7 +488,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Putkeep(*kbuf, ksiz, *vbuf, vsiz);
+          return tcw->Putkeep(*kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
@@ -503,7 +504,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Putcat(*kbuf, ksiz, *vbuf, vsiz);
+          return tcw->Putcat(*kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
@@ -519,7 +520,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Putasync(*kbuf, ksiz, *vbuf, vsiz);
+          return tcw->Putasync(*kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
@@ -535,7 +536,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Putdup(*kbuf, ksiz, *vbuf, vsiz);
+          return tcw->Putdup(*kbuf, ksiz, *vbuf, vsiz);
         }
     };
 
@@ -561,7 +562,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Putlist(*kbuf, ksiz, list);
+          return tcw->Putlist(*kbuf, ksiz, list);
         }
     };
 
@@ -594,7 +595,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Out(*kbuf, ksiz);
+          return tcw->Out(*kbuf, ksiz);
         }
     };
 
@@ -610,7 +611,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Outlist(*kbuf, ksiz);
+          return tcw->Outlist(*kbuf, ksiz);
         }
     };
 
@@ -626,7 +627,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          vbuf = db->Get(*kbuf, ksiz, &vsiz);
+          vbuf = tcw->Get(*kbuf, ksiz, &vsiz);
           return vbuf != NULL;
         }
     };
@@ -650,7 +651,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          list = db->Getlist(*kbuf, ksiz);
+          list = tcw->Getlist(*kbuf, ksiz);
           return true;
         }
 
@@ -678,7 +679,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          list = db->Fwmkeys(*kbuf, ksiz, max);
+          list = tcw->Fwmkeys(*kbuf, ksiz, max);
           return true;
         }
 
@@ -703,7 +704,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          vnum = db->Vnum(*kbuf, ksiz);
+          vnum = tcw->Vnum(*kbuf, ksiz);
           return vnum != 0;
         }
 
@@ -729,7 +730,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          vsiz = db->Vsiz(*kbuf, ksiz);
+          vsiz = tcw->Vsiz(*kbuf, ksiz);
           return vsiz != -1;
         }
 
@@ -780,7 +781,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          list = db->Range(bksiz == -1 ? NULL : *bkbuf, bksiz, binc,
+          list = tcw->Range(bksiz == -1 ? NULL : *bkbuf, bksiz, binc,
                            eksiz == -1 ? NULL : *ekbuf, eksiz, einc, max);
           return true;
         }
@@ -814,7 +815,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          num = db->Addint(*kbuf, ksiz, num);
+          num = tcw->Addint(*kbuf, ksiz, num);
           return num != INT_MIN;
         }
 
@@ -836,7 +837,7 @@ class DBWrap : public ObjectWrap {
         IterinitData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Iterinit();
+          return tcw->Iterinit();
         }
     };
 
@@ -851,7 +852,7 @@ class DBWrap : public ObjectWrap {
         IternextData (const Arguments& args) {}
 
         bool run () {
-          vbuf = db->Iternext(&vsiz);
+          vbuf = tcw->Iternext(&vsiz);
           return vbuf != NULL;
         }
     };
@@ -878,7 +879,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          num = db->Adddouble(*kbuf, ksiz, num);
+          num = tcw->Adddouble(*kbuf, ksiz, num);
           return isnan(num);
         }
 
@@ -900,7 +901,7 @@ class DBWrap : public ObjectWrap {
         SyncData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Sync();
+          return tcw->Sync();
         }
     };
 
@@ -915,7 +916,7 @@ class DBWrap : public ObjectWrap {
         VanishData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Vanish();
+          return tcw->Vanish();
         }
     };
 
@@ -931,7 +932,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          return db->Copy(*path);
+          return tcw->Copy(*path);
         }
     };
 
@@ -946,7 +947,7 @@ class DBWrap : public ObjectWrap {
         TranbeginData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Tranbegin();
+          return tcw->Tranbegin();
         }
     };
 
@@ -961,7 +962,7 @@ class DBWrap : public ObjectWrap {
         TrancommitData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Trancommit();
+          return tcw->Trancommit();
         }
     };
 
@@ -976,7 +977,7 @@ class DBWrap : public ObjectWrap {
         TranabortData (const Arguments& args) : ArgsData(args) {}
 
         bool run () {
-          return db->Tranabort();
+          return tcw->Tranabort();
         }
     };
 
@@ -995,7 +996,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          path = db->Path();
+          path = tcw->Path();
           return path != NULL;
         }
 
@@ -1015,7 +1016,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          rnum = db->Rnum();
+          rnum = tcw->Rnum();
           // rnum == 0 when not connected to any database file
           return rnum != 0;
         }
@@ -1038,7 +1039,7 @@ class DBWrap : public ObjectWrap {
 
         bool
         run () {
-          fsiz = db->Fsiz();
+          fsiz = tcw->Fsiz();
           // fsiz == 0 when not connected to any database file
           return fsiz != 0;
         }
@@ -1053,7 +1054,7 @@ class DBWrap : public ObjectWrap {
     };
 };
 
-class HDB : public DBWrap {
+class HDB : public TCWrap {
   public:
     HDB () {
       hdb = tchdbnew();
@@ -1187,7 +1188,7 @@ class HDB : public DBWrap {
 
         bool
         run () {
-          return db->Setcache(rcnum);
+          return tcw->Setcache(rcnum);
         }
     };
 
@@ -1232,7 +1233,7 @@ class HDB : public DBWrap {
         }
 
         bool run () {
-          return db->Tune(bnum, apow, fpow, opts);
+          return tcw->Tune(bnum, apow, fpow, opts);
         }
     };
 
@@ -1259,7 +1260,7 @@ class HDB : public DBWrap {
 
         bool
         run () {
-          return db->Open(*path, omode);
+          return tcw->Open(*path, omode);
         }
     };
 
@@ -1380,7 +1381,7 @@ class HDB : public DBWrap {
         OptimizeData (const Arguments& args) : TuneData(args) {}
 
         bool run () {
-          return db->Optimize(bnum, apow, fpow, opts);
+          return tcw->Optimize(bnum, apow, fpow, opts);
         }
     };
 
@@ -1448,7 +1449,7 @@ class HDB : public DBWrap {
     DEFINE_SYNC2(Fsiz)
 };
 
-class BDB : public DBWrap {
+class BDB : public TCWrap {
   public:
     TCBDB *bdb;
 
@@ -1604,7 +1605,7 @@ class BDB : public DBWrap {
         }
 
         bool run () {
-          return db->Tune(lmemb, nmemb, bnum, apow, fpow, opts);
+          return tcw->Tune(lmemb, nmemb, bnum, apow, fpow, opts);
         }
     };
 
@@ -1633,7 +1634,7 @@ class BDB : public DBWrap {
 
         bool
         run () {
-          return db->Setcache(lcnum, ncnum);
+          return tcw->Setcache(lcnum, ncnum);
         }
     };
 
@@ -1672,7 +1673,7 @@ class BDB : public DBWrap {
 
         bool
         run () {
-          return db->Open(*path, omode);
+          return tcw->Open(*path, omode);
         }
     };
 
@@ -1816,7 +1817,7 @@ class BDB : public DBWrap {
         OptimizeData (const Arguments& args) : TuneData(args) {}
 
         bool run () {
-          return db->Optimize(lmemb, nmemb, bnum, apow, fpow, opts);
+          return tcw->Optimize(lmemb, nmemb, bnum, apow, fpow, opts);
         }
     };
 
@@ -1953,6 +1954,46 @@ class CUR : ObjectWrap {
       bool success = tcbdbcurfirst(Backend(THIS));
       return Boolean::New(success);
     }
+
+    /*
+    struct AsyncData {
+      CUR *cur;
+      Persistent<Function> cb;
+    };
+
+    static Handle<Value>
+    FirstAsync (const Arguments& args) {
+      HandleScope scope;
+      AsyncData data = new AsyncData;
+      data->cur = Unwrap(THIS);
+      data->cur->Ref();
+      data->cb = args[0]->IsFunction() ? 
+        Persistent<Function>::New(Function::Cast(args[0])) :
+        Persistent<Function>();
+      eio_custom(ExecFirst, EIO_PRI_DEFAULT, AfterFirst, data);
+      ev_ref(EV_DEFAULT_UC);
+      return Undefined();
+    }
+
+    static int
+    Exec##name (eio_req *req) {
+      name##AsyncData *data = static_cast<name##AsyncData *>(req->data);
+      req->result = data->run() ? TCESUCCESS : data->ecode();
+      return 0;
+    }
+
+    static int
+    After##name (eio_req *req) {
+      HandleScope scope;
+      name##AsyncData *data = static_cast<name##AsyncData *>(req->data);
+      if (data->hasCallback) {
+        data->callCallback(Integer::New(req->result));
+      }
+      ev_unref(EV_DEFAULT_UC);
+      delete data;
+      return 0;
+    }
+    */
 
     static Handle<Value>
     Last (const Arguments& args) {
