@@ -62,7 +62,7 @@ inline Local<Array> tclisttoary (TCLIST *list) {
   for (int i = 0; i < len; i++) {
     ary->Set(Integer::New(i), String::New(tclistval2(list, i)));
   }
-  return ary;
+  return scope.Close(ary);
 }
 
 inline TCMAP* objtotcmap (const Handle<Object> obj) {
@@ -81,9 +81,9 @@ inline TCMAP* objtotcmap (const Handle<Object> obj) {
 }
 
 inline Local<Object> tcmaptoobj (TCMAP *map) {
+  HandleScope scope;
   const char *kbuf, *vbuf;
   int ksiz, vsiz;
-  HandleScope scope;
   Local<Object> obj = Object::New();
   tcmapiterinit(map);
   for (;;) {
@@ -92,7 +92,7 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
     vbuf = static_cast<const char*>(tcmapiterval(kbuf, &vsiz));
     obj->Set(String::New(kbuf, ksiz), String::New(vbuf, vsiz));
   }
-  return obj;
+  return scope.Close(obj);
 }
 
 /* sync method blueprint */
@@ -103,7 +103,7 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
     if (!name##Data::checkArgs(args)) {                                       \
       return THROW_BAD_ARGS;                                                  \
     }                                                                         \
-    return Boolean::New(name##Data(args).run());                              \
+    return scope.Close(Boolean::New(name##Data(args).run()));                 \
   }                                                                           \
 
 /* when there is an extra value to return */
@@ -116,14 +116,13 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
     }                                                                         \
     name##Data data(args);                                                    \
     data.run();                                                               \
-    return data.returnValue();                                                \
+    return scope.Close(data.returnValue());                                   \
   }                                                                           \
 
 /* async method blueprint */
 #define DEFINE_ASYNC_FUNC(name)                                               \
   static Handle<Value>                                                        \
   name##Async (const Arguments& args) {                                       \
-    HandleScope scope;                                                        \
     if (!name##Data::checkArgs(args)) {                                       \
       return THROW_BAD_ARGS;                                                  \
     }                                                                         \
@@ -341,7 +340,7 @@ class DBWrap : public ObjectWrap {
         Handle<Value>
         returnValue () {
           HandleScope scope;
-          return Integer::New(ecode);
+          return scope.Close(Integer::New(ecode));
         }
     };
 
@@ -362,7 +361,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          return String::New(msg);
+          HandleScope scope;
+          return scope.Close(String::New(msg));
         }
 
         static bool 
@@ -583,7 +583,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          return vbuf == NULL ? Null() : String::New(vbuf, vsiz);
+          HandleScope scope;
+          return vbuf == NULL ? Null() : scope.Close(String::New(vbuf, vsiz));
         }
     };
 
@@ -655,7 +656,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          return tclisttoary(list);
+          HandleScope scope;
+          return scope.Close(tclisttoary(list));
         }
     };
 
@@ -707,8 +709,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          HandleScope scope; // really needed?
-          return Number::New(vnum);
+          HandleScope scope;
+          return scope.Close(Number::New(vnum));
         }
     };
 
@@ -733,8 +735,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          HandleScope scope; // really needed?
-          return Number::New(vsiz);
+          HandleScope scope;
+          return scope.Close(Number::New(vsiz));
         }
     };
 
@@ -786,7 +788,7 @@ class DBWrap : public ObjectWrap {
         Handle<Value>
         returnValue () {
           HandleScope scope;
-          return tclisttoary(list);
+          return scope.Close(tclisttoary(list));
         }
     };
 
@@ -818,7 +820,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          return num == INT_MIN ? Null() : Integer::New(num);
+          HandleScope scope;
+          return num == INT_MIN ? Null() : scope.Close(Integer::New(num));
         }
     };
 
@@ -881,7 +884,8 @@ class DBWrap : public ObjectWrap {
 
         Handle<Value>
         returnValue () {
-          return isnan(num) ? Null() : Number::New(num);
+          HandleScope scope;
+          return isnan(num) ? Null() : scope.Close(Number::New(num));
         }
     };
 
@@ -998,7 +1002,7 @@ class DBWrap : public ObjectWrap {
         Handle<Value>
         returnValue () {
           HandleScope scope;
-          return path == NULL ? Null() : String::New(path);
+          return path == NULL ? Null() : scope.Close(String::New(path));
         }
     };
 
@@ -1021,7 +1025,7 @@ class DBWrap : public ObjectWrap {
           HandleScope scope;
           // JavaScript integer cannot express uint64
           // so this can't handle too large number
-          return Integer::New(rnum);
+          return scope.Close(Integer::New(rnum));
         }
     };
 
@@ -1044,7 +1048,7 @@ class DBWrap : public ObjectWrap {
           HandleScope scope;
           // JavaScript integer cannot express uint64
           // so this can't handle too large number
-          return Integer::New(fsiz);
+          return scope.Close(Integer::New(fsiz));
         }
     };
 };
@@ -1885,7 +1889,7 @@ const Persistent<FunctionTemplate> BDB::Tmpl =
 
 class CUR : ObjectWrap {
   public:
-    CUR (TCBDB *bdb) : ObjectWrap () {
+    CUR (TCBDB *bdb) {
       cur = tcbdbcurnew(bdb);
     }
 
@@ -1946,8 +1950,7 @@ class CUR : ObjectWrap {
     static Handle<Value>
     First (const Arguments& args) {
       HandleScope scope;
-      bool success = tcbdbcurfirst(
-          Backend(THIS));
+      bool success = tcbdbcurfirst(Backend(THIS));
       return Boolean::New(success);
     }
 
