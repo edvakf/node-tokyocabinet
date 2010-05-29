@@ -215,6 +215,7 @@ class TCWrap : public ObjectWrap {
     virtual bool Setmutex () { assert(false); }
     virtual bool Tune (int64_t bnum, int8_t apow, int8_t fpow, uint8_t opts) { assert(false); } // for HDB
     virtual bool Tune (int32_t lmemb, int32_t nmemb, int64_t bnum, int8_t apow, int8_t fpow, uint8_t opts) { assert(false); } // for BDB
+    virtual bool Tune (int32_t width, int64_t limsiz) { assert(false); } // for FDB
     virtual bool Setcache (int32_t rcnum) { assert(false); } // for HDB
     virtual bool Setcache (int32_t lcnum, int32_t ncnum) { assert(false); } // for BDB
     virtual bool Setxmsiz (int64_t xmsiz) { assert(false); }
@@ -233,7 +234,8 @@ class TCWrap : public ObjectWrap {
     virtual TCLIST * Getlist(char *kbuf, int ksiz) { assert(false); } // for BDB
     virtual int Vnum (char *kbuf, int ksiz) { assert(false); }
     virtual int Vsiz(char *kbuf, int ksiz) { assert(false); }
-    virtual TCLIST * Range(void *bkbuf, int bksiz, bool binc, char *ekbuf, int eksiz, bool einc, int max) {} // for BDB
+    virtual TCLIST * Range(char *bkbuf, int bksiz, bool binc, char *ekbuf, int eksiz, bool einc, int max) { assert(false); } // for BDB
+    virtual TCLIST * Range(char *ibuf, int isiz, int max) { assert(false); } // for FDB
     virtual bool Iterinit () { assert(false); }
     virtual char * Iternext (int *vsiz_p) { assert(false); }
     virtual TCLIST * Fwmkeys(char *kbuf, int ksiz, int max) { assert(false); }
@@ -242,6 +244,7 @@ class TCWrap : public ObjectWrap {
     virtual bool Sync () { assert(false); }
     virtual bool Optimize (int64_t bnum, int8_t apow, int8_t fpow, uint8_t opts) { assert(false); } // for HDB
     virtual bool Optimize (int32_t lmemb, int32_t nmemb, int64_t bnum, int8_t apow, int8_t fpow, uint8_t opts) { assert(false); } // for HDB
+    virtual bool Optimize (int32_t width, int64_t limsiz) { assert(false); } // for FDB
     virtual bool Vanish () { assert(false); }
     virtual bool Copy (char *path) { assert(false); }
     virtual bool Tranbegin () { assert(false); }
@@ -755,58 +758,6 @@ class TCWrap : public ObjectWrap {
       public:
         VsizAsyncData (const Arguments& args)
           : VsizData(args), AsyncData(args[1]), ArgsData(args) {}
-    };
-
-    class RangeData : public virtual ArgsData {
-      protected:
-        String::Utf8Value bkbuf;
-        int bksiz;
-        bool binc;
-        String::Utf8Value ekbuf;
-        int eksiz;
-        bool einc;
-        int max;
-        TCLIST *list;
-
-      public:
-        static bool
-        checkArgs (const Arguments& args) {
-          return (NOU(ARG1) || ARG1->IsBoolean()) &&
-                 (NOU(ARG3) || ARG3->IsBoolean()) &&
-                 (NOU(ARG4) || ARG4->IsNumber());
-        }
-
-        RangeData (const Arguments& args) 
-            : bkbuf(ARG0), ekbuf(ARG2), ArgsData(args) {
-          bksiz = ARG0->IsNull() ? -1 : bkbuf.length();
-          binc = ARG1->BooleanValue();
-          eksiz = ARG2->IsNull() ? -1 : ekbuf.length();
-          einc = ARG3->BooleanValue();
-          max = NOU(ARG4) ? -1 : ARG4->Int32Value();
-        }
-
-        ~RangeData () {
-          tclistdel(list);
-        }
-
-        bool
-        run () {
-          list = tcw->Range(bksiz == -1 ? NULL : *bkbuf, bksiz, binc,
-                           eksiz == -1 ? NULL : *ekbuf, eksiz, einc, max);
-          return true;
-        }
-
-        Handle<Value>
-        returnValue () {
-          HandleScope scope;
-          return scope.Close(tclisttoary(list));
-        }
-    };
-
-    class RangeAsyncData : public RangeData, public AsyncData {
-      public:
-        RangeAsyncData (const Arguments& args)
-          : RangeData(args), AsyncData(args[5]), ArgsData(args) {}
     };
 
     class AddintData : public KeyData {
@@ -1781,10 +1732,62 @@ class BDB : public TCWrap {
     DEFINE_SYNC2(Vsiz)
     DEFINE_ASYNC2(Vsiz)
 
-    TCLIST * Range(void *bkbuf, int bksiz, bool binc, char *ekbuf, int eksiz, 
+    TCLIST * Range(char *bkbuf, int bksiz, bool binc, char *ekbuf, int eksiz, 
                                                       bool einc, int max) {
       return tcbdbrange(bdb, bkbuf, bksiz, binc, ekbuf, eksiz, einc, max);
     }
+
+    class RangeData : public virtual ArgsData {
+      protected:
+        String::Utf8Value bkbuf;
+        int bksiz;
+        bool binc;
+        String::Utf8Value ekbuf;
+        int eksiz;
+        bool einc;
+        int max;
+        TCLIST *list;
+
+      public:
+        static bool
+        checkArgs (const Arguments& args) {
+          return (NOU(ARG1) || ARG1->IsBoolean()) &&
+                 (NOU(ARG3) || ARG3->IsBoolean()) &&
+                 (NOU(ARG4) || ARG4->IsNumber());
+        }
+
+        RangeData (const Arguments& args) 
+            : bkbuf(ARG0), ekbuf(ARG2), ArgsData(args) {
+          bksiz = ARG0->IsNull() ? -1 : bkbuf.length();
+          binc = ARG1->BooleanValue();
+          eksiz = ARG2->IsNull() ? -1 : ekbuf.length();
+          einc = ARG3->BooleanValue();
+          max = NOU(ARG4) ? -1 : ARG4->Int32Value();
+        }
+
+        ~RangeData () {
+          tclistdel(list);
+        }
+
+        bool
+        run () {
+          list = tcw->Range(bksiz == -1 ? NULL : *bkbuf, bksiz, binc,
+                           eksiz == -1 ? NULL : *ekbuf, eksiz, einc, max);
+          return true;
+        }
+
+        Handle<Value>
+        returnValue () {
+          HandleScope scope;
+          return scope.Close(tclisttoary(list));
+        }
+    };
+
+    class RangeAsyncData : public RangeData, public AsyncData {
+      public:
+        RangeAsyncData (const Arguments& args)
+          : RangeData(args), AsyncData(args[5]), ArgsData(args) {}
+    };
 
     DEFINE_SYNC2(Range)
     DEFINE_ASYNC2(Range)
@@ -1975,38 +1978,6 @@ class CUR : TCWrap {
       return tcbdbcurfirst(cur);
     }
 
-    bool Last () {
-      return tcbdbcurlast(cur);
-    }
-
-    bool Jump (char *kbuf, int ksiz) {
-      return tcbdbcurjump(cur, kbuf, ksiz);
-    }
-
-    bool Prev () {
-      return tcbdbcurprev(cur);
-    }
-
-    bool Next () {
-      return tcbdbcurnext(cur);
-    }
-
-    bool Put (char *kbuf, int ksiz, int cpmode) {
-      return tcbdbcurput(cur, kbuf, ksiz, cpmode);
-    }
-
-    bool Out () {
-      return tcbdbcurout(cur);
-    }
-
-    char * Key (int *vsiz_p) {
-      return static_cast<char *>(tcbdbcurkey(cur, vsiz_p));
-    }
-
-    char * Val (int *vsiz_p) {
-      return static_cast<char *>(tcbdbcurval(cur, vsiz_p));
-    }
-
     class FirstData : public virtual ArgsData {
       public:
         FirstData(const Arguments& args) : ArgsData() {}
@@ -2025,6 +1996,10 @@ class CUR : TCWrap {
     };
 
     DEFINE_ASYNC(First)
+
+    bool Last () {
+      return tcbdbcurlast(cur);
+    }
 
     class LastData : public virtual ArgsData {
       public:
@@ -2045,6 +2020,10 @@ class CUR : TCWrap {
 
     DEFINE_ASYNC(Last)
 
+    bool Jump (char *kbuf, int ksiz) {
+      return tcbdbcurjump(cur, kbuf, ksiz);
+    }
+
     class JumpData : public KeyData {
       public:
         JumpData(const Arguments& args) : KeyData(args) {}
@@ -2063,6 +2042,10 @@ class CUR : TCWrap {
     };
 
     DEFINE_ASYNC(Jump)
+
+    bool Prev () {
+      return tcbdbcurprev(cur);
+    }
 
     class PrevData : public virtual ArgsData {
       public:
@@ -2083,6 +2066,10 @@ class CUR : TCWrap {
 
     DEFINE_ASYNC(Prev)
 
+    bool Next () {
+      return tcbdbcurnext(cur);
+    }
+
     class NextData : public virtual ArgsData {
       public:
         NextData(const Arguments& args) : ArgsData(args) {}
@@ -2101,6 +2088,10 @@ class CUR : TCWrap {
     };
 
     DEFINE_ASYNC(Next)
+
+    bool Put (char *kbuf, int ksiz, int cpmode) {
+      return tcbdbcurput(cur, kbuf, ksiz, cpmode);
+    }
 
     class PutData : public KeyData {
       private:
@@ -2140,6 +2131,10 @@ class CUR : TCWrap {
         }
     };
 
+    bool Out () {
+      return tcbdbcurout(cur);
+    }
+
     DEFINE_SYNC(Out)
 
     class OutAsyncData : public OutData, public AsyncData {
@@ -2149,6 +2144,10 @@ class CUR : TCWrap {
     };
 
     DEFINE_ASYNC(Out)
+
+    char * Key (int *vsiz_p) {
+      return static_cast<char *>(tcbdbcurkey(cur, vsiz_p));
+    }
 
     class KeyData : public ValueData {
       public:
@@ -2169,6 +2168,10 @@ class CUR : TCWrap {
     };
 
     DEFINE_ASYNC2(Key)
+
+    char * Val (int *vsiz_p) {
+      return static_cast<char *>(tcbdbcurval(cur, vsiz_p));
+    }
 
     class ValData : public ValueData {
       public:
@@ -2191,32 +2194,22 @@ class CUR : TCWrap {
     DEFINE_ASYNC2(Val)
 };
 
-class FDB : ObjectWrap {
+class FDB : public TCWrap {
   public:
-    FDB () : ObjectWrap () {
-      db = tcfdbnew();
+    FDB () {
+      fdb = tcfdbnew();
     }
 
     ~FDB () {
-      tcfdbdel(db);
-    }
-
-    static FDB *
-    Unwrap (const Handle<Object> obj) {
-      return ObjectWrap::Unwrap<FDB>(obj);
-    }
-
-    static TCFDB *
-    Backend (const Handle<Object> obj) {
-      return Unwrap(obj)->db;
+      tcfdbdel(fdb);
     }
 
     static void
     Initialize (const Handle<Object> target) {
       HandleScope scope;
       Local<FunctionTemplate> tmpl = FunctionTemplate::New(New);
-      set_ecodes(tmpl);
       tmpl->InstanceTemplate()->SetInternalFieldCount(1);
+      set_ecodes(tmpl);
 
       DEFINE_PREFIXED_CONSTANT(tmpl, FDB, OREADER);
       DEFINE_PREFIXED_CONSTANT(tmpl, FDB, OWRITER);
@@ -2226,350 +2219,344 @@ class FDB : ObjectWrap {
       DEFINE_PREFIXED_CONSTANT(tmpl, FDB, OLCKNB);
       DEFINE_PREFIXED_CONSTANT(tmpl, FDB, OTSYNC);
 
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "errmsg", Errmsg);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "ecode", Ecode);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "tune", Tune);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "open", Open);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "close", Close);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", Put);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeep", Putkeep);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcat", Putcat);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", Out);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "get", Get);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsiz", Vsiz);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "iterinit", Iterinit);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "iternext", Iternext);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "range", Range);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "addint", Addint);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddouble", Adddouble);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "sync", Sync);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimize", Optimize);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanish", Vanish);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "copy", Copy);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbegin", Tranbegin);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommit", Trancommit);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabort", Tranabort);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "path", Path);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "rnum", Rnum);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "fsiz", Fsiz);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "errmsg", ErrmsgSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "ecode", EcodeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setmutex", SetmutexSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tune", TuneSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "open", OpenSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "openAsync", OpenAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "close", CloseSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "closeAsync", CloseAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", PutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putAsync", PutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeep", PutkeepSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeepAsync", PutkeepAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcat", PutcatSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcatAsync", PutcatAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", OutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outAsync", OutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "get", GetSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "getAsync", GetAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsiz", VsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsizAsync", VsizAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iterinit", IterinitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iterinitAsync", IterinitAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iternext", IternextSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iternextAsync", IternextAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "range", RangeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "rangeAsync", RangeAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addint", AddintSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addintAsync", AddintAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddouble", AdddoubleSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddoubleAsync", AdddoubleAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "sync", SyncSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "syncAsync", SyncAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimize", OptimizeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimizeAsync", OptimizeAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanish", VanishSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanishAsync", VanishAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copy", CopySync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copyAsync", CopyAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbegin", TranbeginSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbeginAsync", TranbeginAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommit", TrancommitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommitAsync", TrancommitAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabort", TranabortSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabortAsync", TranabortAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "path", PathSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "rnum", RnumSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fsiz", FsizSync);
 
       target->Set(String::New("FDB"), tmpl->GetFunction());
     }
 
   private:
-    TCFDB *db;
+    TCFDB *fdb;
 
     static Handle<Value>
     New (const Arguments& args) {
       HandleScope scope;
+      if (!args.IsConstructCall()) return args.Callee()->NewInstance();
       (new FDB)->Wrap(THIS);
       return THIS;
     }
 
-    static Handle<Value>
-    Errmsg (const Arguments& args) {
-      HandleScope scope;
-      if (!(NOU(ARG0) || ARG0->IsNumber())) {
-        return THROW_BAD_ARGS;
-      }
-      const char *msg = tcfdberrmsg(
-          NOU(ARG0) ? tcfdbecode(Backend(THIS)) : VINT32(ARG0));
-      return String::New(msg);
+    int Ecode () {
+      return tcfdbecode(fdb);
     }
 
-    static Handle<Value>
-    Ecode (const Arguments& args) {
-      HandleScope scope;
-      int ecode = tcfdbecode(
-          Backend(THIS));
-      return Integer::New(ecode);
+    DEFINE_SYNC2(Ecode)
+
+    const char * Errmsg (int ecode) {
+      return tcfdberrmsg(ecode);
     }
 
-    static Handle<Value>
-    Tune (const Arguments& args) {
-      HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1))) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbtune(
-          Backend(THIS),
-          NOU(ARG0) ? -1 : VINT32(ARG0),
-          NOU(ARG1) ? -1 : VINT64(ARG1));
-      return Boolean::New(success);
+    DEFINE_SYNC2(Errmsg)
+
+    bool Setmutex () {
+      return tcfdbsetmutex(fdb);
     }
 
-    static Handle<Value>
-    Open (const Arguments& args) {
-      HandleScope scope;
-      if (!ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbopen(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          NOU(ARG1) ? FDBOREADER : VINT32(ARG1));
-      return Boolean::New(success);
+    DEFINE_SYNC(Setmutex)
+
+    bool Tune (int32_t width, int64_t limsiz) {
+      return tcfdbtune(fdb, width, limsiz);
     }
 
-    static Handle<Value>
-    Close (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbclose(Backend(THIS));
-      return Boolean::New(success);
+    class TuneData : public virtual ArgsData {
+      protected:
+        int32_t width;
+        int64_t limsiz;
+
+      public:
+        static bool checkArgs (const Arguments& args) {
+          return (ARG0->IsNumber() || NOU(ARG0)) &&
+                 (ARG1->IsNumber() || NOU(ARG1));
+        }
+
+        TuneData (const Arguments& args) : ArgsData(args) {
+          width = NOU(ARG0) ? -1 : ARG0->Int32Value();
+          limsiz = NOU(ARG1) ? -1 : ARG1->IntegerValue();
+        }
+
+        bool run () {
+          return tcw->Tune(width, limsiz);
+        }
+    };
+
+    DEFINE_SYNC(Tune)
+
+    bool Open (char *path, int omode) {
+      return tcfdbopen(fdb, path, omode);
     }
 
-    static Handle<Value>
-    Put (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbput2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
+    class OpenData : public FilenameData {
+      protected:
+        int omode;
+
+      public:
+        OpenData (const Arguments& args) : FilenameData(args) {
+          omode = NOU(ARG1) ? FDBOREADER : ARG1->Int32Value();
+        }
+
+        static bool
+        checkArgs (const Arguments& args) {
+          return FilenameData::checkArgs(args) &&
+            (NOU(ARG1) || ARG1->IsNumber());
+        }
+
+        bool
+        run () {
+          return tcw->Open(*path, omode);
+        }
+    };
+
+    DEFINE_SYNC(Open)
+
+    class OpenAsyncData : public OpenData, public AsyncData {
+      public:
+        OpenAsyncData (const Arguments& args)
+          : OpenData(args), AsyncData(args[2]), ArgsData(args) {}
+    };
+
+    DEFINE_ASYNC(Open)
+
+    bool Close () {
+      return tcfdbclose(fdb);
     }
 
-    static Handle<Value>
-    Putkeep (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbputkeep2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
+    DEFINE_SYNC(Close)
+    DEFINE_ASYNC(Close)
+
+    bool Put(char *kbuf, int ksiz, char *vbuf, int vsiz) {
+      return tcfdbput2(fdb, kbuf, ksiz, vbuf, vsiz);
     }
 
-    static Handle<Value>
-    Putcat (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbputcat2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          VSTRPTR(ARG1),
-          VSTRSIZ(ARG1));
-      return Boolean::New(success);
+    DEFINE_SYNC(Put)
+    DEFINE_ASYNC(Put)
+
+    bool Putkeep(char *kbuf, int ksiz, char *vbuf, int vsiz) {
+      return tcfdbputkeep2(fdb, kbuf, ksiz, vbuf, vsiz);
     }
 
-    static Handle<Value>
-    Out (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdbout2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0));
-      return Boolean::New(success);
+    DEFINE_SYNC(Putkeep)
+    DEFINE_ASYNC(Putkeep)
+
+    bool Putcat(char *kbuf, int ksiz, char *vbuf, int vsiz) {
+      return tcfdbputcat2(fdb, kbuf, ksiz, vbuf, vsiz);
     }
 
-    static Handle<Value>
-    Get (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1) {
-        return THROW_BAD_ARGS;
-      }
-      int vsiz;
-      char *vstr = static_cast<char *>(tcfdbget2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          &vsiz));
-      if (vstr == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(vstr, vsiz);
-        tcfree(vstr);
-        return ret;
-      }
+    DEFINE_SYNC(Putcat)
+    DEFINE_ASYNC(Putcat)
+
+    bool Out(char *kbuf, int ksiz) {
+      return tcfdbout2(fdb, kbuf, ksiz);
     }
 
-    static Handle<Value>
-    Vsiz (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1) {
-        return THROW_BAD_ARGS;
-      }
-      int vsiz = tcfdbvsiz2(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0));
-      return Integer::New(vsiz);
+    DEFINE_SYNC(Out)
+    DEFINE_ASYNC(Out)
+
+    char * Get(char *kbuf, int ksiz, int *vsiz_p) {
+      return static_cast<char *>(tcfdbget2(fdb, kbuf, ksiz, vsiz_p));
     }
 
-    static Handle<Value>
-    Iterinit (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbiterinit(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC2(Get)
+    DEFINE_ASYNC2(Get)
+
+    int Vsiz(char *kbuf, int ksiz) {
+      return tcfdbvsiz2(fdb, kbuf, ksiz);
     }
 
-    static Handle<Value>
-    Iternext (const Arguments& args) {
-      HandleScope scope;
-      int vsiz;
-      char *vstr = static_cast<char *>(tcfdbiternext2(
-          Backend(THIS),
-          &vsiz));
-      if (vstr == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(vstr, vsiz);
-        tcfree(vstr);
-        return ret;
-      }
+    DEFINE_SYNC2(Vsiz)
+    DEFINE_ASYNC2(Vsiz)
+
+    bool Iterinit () {
+      return tcfdbiterinit(fdb);
     }
 
-    static Handle<Value>
-    Range (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 || 
-          !(ARG1->IsNumber() || NOU(ARG1))) {
-        return THROW_BAD_ARGS;
-      }
-      TCLIST *list = tcfdbrange4(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          NOU(ARG2) ? -1 : VINT32(ARG2));
-      Local<Array> arr = tclisttoary(list);
-      tclistdel(list);
-      return arr;
+    DEFINE_SYNC(Iterinit)
+    DEFINE_ASYNC(Iterinit)
+
+    char * Iternext (int *vsiz_p) {
+      return static_cast<char *>(tcfdbiternext2(fdb, vsiz_p));
     }
 
-    static Handle<Value>
-    Addint (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG1->IsNumber()) {
-        return THROW_BAD_ARGS;
-      }
-      int sum = tcfdbaddint(
-          Backend(THIS),
-          tcfdbkeytoid(VSTRPTR(ARG0), VSTRSIZ(ARG0)),
-          VINT32(ARG1));
-      return sum == INT_MIN ? Null() : Integer::New(sum);
+    DEFINE_SYNC2(Iternext)
+    DEFINE_ASYNC2(Iternext)
+
+    TCLIST * Range(char *ibuf, int isiz, int max) {
+      return tcfdbrange4(fdb, ibuf, isiz, max);
     }
 
-    static Handle<Value>
-    Adddouble (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 2 ||
-          !ARG1->IsNumber()) {
-        return THROW_BAD_ARGS;
-      }
-      double sum = tcfdbadddouble(
-          Backend(THIS),
-          tcfdbkeytoid(VSTRPTR(ARG0), VSTRSIZ(ARG0)),
-          VDOUBLE(ARG1));
-      return isnan(sum) ? Null() : Number::New(sum);
+    // Get keys with an interval notation
+    // arg[0] : interval notation
+    // arg[1] : maximum number of keys to be fetched
+    class RangeData : public GetlistData {
+      protected:
+        int max;
+
+      public:
+        static bool
+        checkArgs (const Arguments& args) {
+          return NOU(ARG1) || ARG1->IsNumber();
+        }
+
+        RangeData (const Arguments& args) : GetlistData(args) {
+          max = NOU(ARG1) ? -1 : ARG1->Int32Value();
+        }
+
+        bool
+        run () {
+          list = tcw->Range(*kbuf, ksiz, max);
+          return true;
+        }
+    };
+
+    class RangeAsyncData : public RangeData, public AsyncData {
+      public:
+        RangeAsyncData (const Arguments& args)
+          : RangeData(args), AsyncData(args[5]), ArgsData(args) {}
+    };
+
+    DEFINE_SYNC2(Range)
+    DEFINE_ASYNC2(Range)
+
+    int Addint(char *kbuf, int ksiz, int num) {
+      return tcfdbaddint(fdb, tcfdbkeytoid(kbuf, ksiz), num);
     }
 
-    static Handle<Value>
-    Sync (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbsync(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC2(Addint)
+    DEFINE_ASYNC2(Addint)
+
+    double Adddouble(char *kbuf, int ksiz, double num) {
+      return tcfdbadddouble(fdb, tcfdbkeytoid(kbuf, ksiz), num);
     }
 
-    static Handle<Value>
-    Optimize (const Arguments& args) {
-      HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1))) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcfdboptimize(
-          Backend(THIS),
-          NOU(ARG0) ? -1 : VINT32(ARG0),
-          NOU(ARG1) ? -1 : VINT64(ARG1));
-      return Boolean::New(success);
+    DEFINE_SYNC2(Adddouble)
+    DEFINE_ASYNC2(Adddouble)
+
+    bool Sync () {
+      return tcfdbsync(fdb);
     }
 
-    static Handle<Value>
-    Vanish (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbvanish(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC(Sync)
+    DEFINE_ASYNC(Sync)
+
+    bool Optimize (int32_t width, int64_t limsiz) {
+      return tcfdboptimize(fdb, width, limsiz);
     }
 
-    static Handle<Value>
-    Copy (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG0->IsString()) {
-        return THROW_BAD_ARGS;
-      }
-      int success = tcfdbcopy(
-          Backend(THIS),
-          VSTRPTR(ARG0));
-      return Boolean::New(success);
+    class OptimizeData : public TuneData {
+      public:
+        OptimizeData (const Arguments& args) : TuneData(args) {}
+
+        bool run () {
+          return tcw->Optimize(width, limsiz);
+        }
+    };
+
+    DEFINE_SYNC(Optimize)
+
+    class OptimizeAsyncData : public OptimizeData, public AsyncData {
+      public:
+        OptimizeAsyncData (const Arguments& args)
+          : OptimizeData(args), AsyncData(ARG2) {}
+    };
+
+    DEFINE_ASYNC(Optimize)
+
+    bool Vanish () {
+      return tcfdbvanish(fdb);
     }
 
-    static Handle<Value>
-    Tranbegin (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbtranbegin(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC(Vanish)
+    DEFINE_ASYNC(Vanish)
+
+    bool Copy (char *path) {
+      return tcfdbcopy(fdb, path);
     }
 
-    static Handle<Value>
-    Trancommit (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbtrancommit(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC(Copy)
+    DEFINE_ASYNC(Copy)
+
+    bool Tranbegin () {
+      return tcfdbtranbegin(fdb);
     }
 
-    static Handle<Value>
-    Tranabort (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcfdbtranabort(
-          Backend(THIS));
-      return Boolean::New(success);
+    DEFINE_SYNC(Tranbegin)
+    DEFINE_ASYNC(Tranbegin)
+
+    bool Trancommit () {
+      return tcfdbtrancommit(fdb);
     }
 
-    static Handle<Value>
-    Path (const Arguments& args) {
-      HandleScope scope;
-      const char *path = tcfdbpath(
-          Backend(THIS));
-      return path == NULL ? Null() : String::New(path);
+    DEFINE_SYNC(Trancommit)
+    DEFINE_ASYNC(Trancommit)
+
+    bool Tranabort () {
+      return tcfdbtranabort(fdb);
     }
 
-    static Handle<Value>
-    Rnum (const Arguments& args) {
-      HandleScope scope;
-      int64_t num = tcfdbrnum(
-          Backend(THIS));
-      return Integer::New(num);
+    DEFINE_SYNC(Tranabort)
+    DEFINE_ASYNC(Tranabort)
+
+    const char * Path () {
+      return tcfdbpath(fdb);
     }
 
-    static Handle<Value>
-    Fsiz (const Arguments& args) {
-      HandleScope scope;
-      int64_t siz = tcfdbfsiz(
-          Backend(THIS));
-      return Integer::New(siz);
+    DEFINE_SYNC2(Path)
+
+    uint64_t Rnum () {
+      return tcfdbrnum(fdb);
     }
+
+    DEFINE_SYNC2(Rnum)
+
+    uint64_t Fsiz () {
+      return tcfdbfsiz(fdb);
+    }
+
+    DEFINE_SYNC2(Fsiz)
 };
 
 class TDB : ObjectWrap {

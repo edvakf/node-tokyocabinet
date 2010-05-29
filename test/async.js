@@ -7,7 +7,14 @@ var fs = require('fs');
 
 sys.puts("Tokyo Cabinet version " + TC.VERSION);
 
-setTimeout(function() {
+var samples = [];
+var next_sample = function () {
+  var next = samples.shift();
+  if (next) next();
+}
+setTimeout(next_sample, 10);
+
+samples.push(function() {
   sys.puts("== Sample: HDB ==");
   var HDB = TC.HDB;
 
@@ -17,7 +24,6 @@ setTimeout(function() {
 
   hdb.openAsync('casket.tch', HDB.OWRITER | HDB.OCREAT, function(e) {
     if (e) sys.error(hdb.errmsg(e));
-    sys.puts("foo");
 
     var n = 3;
     [["foo", "hop"], ["bar", "step"], ["baz", "jump"]].forEach(function(kv) {
@@ -47,6 +53,8 @@ setTimeout(function() {
                   hdb.closeAsync(function(e) {
                     if (e) sys.error(hdb.errmsg(e));
                     fs.unlink('casket.tch');
+
+                    next_sample();
                   });
 
                 }
@@ -58,9 +66,9 @@ setTimeout(function() {
     });
   });
 
-}, 0);
+});
 
-setTimeout(function() {
+samples.push(function() {
   sys.puts("== Sample: BDB ==");
   var BDB = TC.BDB;
   var CUR = TC.BDBCUR;
@@ -71,7 +79,6 @@ setTimeout(function() {
 
   bdb.openAsync('casket.tcb', BDB.OWRITER | BDB.OCREAT, function(e) {
     if (e) sys.error(bdb.errmsg(e));
-    sys.puts("foo");
 
     var n = 3;
     [["foo", "hop"], ["bar", "step"], ["baz", "jump"]].forEach(function(kv) {
@@ -87,7 +94,7 @@ setTimeout(function() {
             cur.firstAsync(function func(e) { // recursive asynchronous function
 
               cur.keyAsync(function(e, key) {
-                if (key !== null) {
+                if (e !== BDB.ENOREC) {
 
                   cur.valAsync(function(e, val) {
                     if (e) sys.error(bdb.errmsg(e));
@@ -100,6 +107,8 @@ setTimeout(function() {
                   bdb.closeAsync(function(e) {
                     if (e) sys.error(bdb.errmsg(e));
                     fs.unlink('casket.tcb');
+
+                    next_sample();
                   });
 
                 }
@@ -111,91 +120,63 @@ setTimeout(function() {
     });
   });
 
-}, 200);
+});
 
-/*
-(function() {
-  sys.puts("== Sample: BDB ==");
-
-  var BDB = TC.BDB;
-  var CUR = TC.BDBCUR;
-
-  var bdb = new BDB;
-
-  if (!bdb.open('casket.tcb', BDB.OWRITER | BDB.OCREAT)) {
-    sys.error(bdb.errmsg());
-  }
-
-  if (!bdb.put("foo", "hop") ||
-      !bdb.put("bar", "step") ||
-      !bdb.put("baz", "jump")) {
-    sys.error(bdb.errmsg());
-  }
-
-  var value = bdb.get("foo");
-  if (value) {
-    sys.puts(value);
-  } else {
-    sys.error(bdb.errmsg());
-  }
-
-  var cur = new CUR(bdb);
-  cur.first();
-  var key;
-  while ((key = cur.key()) !== null) {
-    var value = cur.val();
-    if (value) {
-      sys.puts(key + ":" + value);
-    }
-    cur.next();
-  }
-
-  if (!bdb.close()) {
-    sys.error(bdb.errmsg());
-  }
-
-  fs.unlink('casket.tcb');
-}());
-
-(function() {
+samples.push(function() {
   sys.puts("== Sample: FDB ==");
-
   var FDB = TC.FDB;
 
-  var fdb = new FDB();
+  var fdb = new FDB;
+  // this line is necessary for an async operation
+  if (!fdb.setmutex()) throw fdb.errmsg();
 
-  if (!fdb.open('casket.tcf', FDB.OWRITER | FDB.OCREAT)) {
-    sys.error(fdb.errmsg());
-  }
+  fdb.openAsync('casket.tcf', FDB.OWRITER | FDB.OCREAT, function(e) {
+    if (e) sys.error(fdb.errmsg(e));
 
-  if (!fdb.put("1", "one") ||
-      !fdb.put("12", "twelve") ||
-      !fdb.put("144", "one forty four")) {
-    sys.error(fdb.errmsg());
-  }
+    var n = 3;
+    [["1", "one"], ["12", "twelve"], ["144", "one forty four"]].forEach(function(kv) {
+      fdb.putAsync(kv[0], kv[1], function(e) {
+        if (e) sys.error(fdb.errmsg(e));
 
-  var value = fdb.get("1");
-  if (value) {
-    sys.puts(value);
-  } else {
-    sys.error(fdb.errmsg());
-  }
+        if (--n === 0) {
+          fdb.getAsync("1", function(e, value) {
+            if (e) sys.error(fdb.errmsg(e));
+            sys.puts(value);
 
-  fdb.iterinit();
-  var key;
-  while((key = fdb.iternext()) != null) {
-    var value = fdb.get(key);
-    if (value) {
-      sys.puts(key + ':' + value);
-    }
-  }
+            fdb.iterinitAsync(function(e) {
+              if (e) sys.error(fdb.errmsg(e));
 
-  if (!fdb.close()) {
-    sys.error(fdb.errmsg());
-  }
+              fdb.iternextAsync(function func(e ,key) { // recursive asynchronous function
+                if (e !== FDB.ENOREC) { // if next key exsists
+                  if (e) sys.error(fdb.errmsg(e));
 
-  fs.unlink('casket.tcf');
-}());
+                  fdb.getAsync(key, function(e, value) {
+                    if (e) sys.error(fdb.errmsg(e));
+                    sys.puts(key + ':' + value);
+                    fdb.iternextAsync(func);
+                  });
+
+                } else { // if next key does not exist
+
+                  fdb.closeAsync(function(e) {
+                    if (e) sys.error(fdb.errmsg(e));
+                    fs.unlink('casket.tcf');
+
+                    next_sample();
+                  });
+
+                }
+              });
+            });
+          });
+        }
+      });
+    });
+  });
+
+});
+
+/*
 
 (function() {
   sys.puts("== Sample: TDB ==");
