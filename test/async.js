@@ -7,7 +7,7 @@ var fs = require('fs');
 
 sys.puts("Tokyo Cabinet version " + TC.VERSION);
 
-(function() {
+setTimeout(function() {
   sys.puts("== Sample: HDB ==");
   var HDB = TC.HDB;
 
@@ -17,6 +17,7 @@ sys.puts("Tokyo Cabinet version " + TC.VERSION);
 
   hdb.openAsync('casket.tch', HDB.OWRITER | HDB.OCREAT, function(e) {
     if (e) sys.error(hdb.errmsg(e));
+    sys.puts("foo");
 
     var n = 3;
     [["foo", "hop"], ["bar", "step"], ["baz", "jump"]].forEach(function(kv) {
@@ -31,8 +32,8 @@ sys.puts("Tokyo Cabinet version " + TC.VERSION);
             hdb.iterinitAsync(function(e) {
               if (e) sys.error(hdb.errmsg(e));
 
-              hdb.iternextAsync(function func(e ,key) {
-                if (e !== HDB.ENOREC) {  // if next key exsists
+              hdb.iternextAsync(function func(e ,key) { // recursive asynchronous function
+                if (e !== HDB.ENOREC) { // if next key exsists
                   if (e) sys.error(hdb.errmsg(e));
 
                   hdb.getAsync(key, function(e, value) {
@@ -57,7 +58,61 @@ sys.puts("Tokyo Cabinet version " + TC.VERSION);
     });
   });
 
-}());
+}, 0);
+
+setTimeout(function() {
+  sys.puts("== Sample: BDB ==");
+  var BDB = TC.BDB;
+  var CUR = TC.BDBCUR;
+
+  var bdb = new BDB;
+  // this line is necessary for an async operation
+  if (!bdb.setmutex()) throw bdb.errmsg();
+
+  bdb.openAsync('casket.tcb', BDB.OWRITER | BDB.OCREAT, function(e) {
+    if (e) sys.error(bdb.errmsg(e));
+    sys.puts("foo");
+
+    var n = 3;
+    [["foo", "hop"], ["bar", "step"], ["baz", "jump"]].forEach(function(kv) {
+      bdb.putAsync(kv[0], kv[1], function(e) {
+        if (e) sys.error(bdb.errmsg(e));
+
+        if (--n === 0) {
+          bdb.getAsync("foo", function(e, value) {
+            if (e) sys.error(bdb.errmsg(e));
+            sys.puts(value);
+
+            var cur = new CUR(bdb);
+            cur.firstAsync(function func(e) { // recursive asynchronous function
+
+              cur.keyAsync(function(e, key) {
+                if (key !== null) {
+
+                  cur.valAsync(function(e, val) {
+                    if (e) sys.error(bdb.errmsg(e));
+                    sys.puts(key + ':' + val);
+                    cur.nextAsync(func);
+                  });
+
+                } else { // if next key does not exist
+
+                  bdb.closeAsync(function(e) {
+                    if (e) sys.error(bdb.errmsg(e));
+                    fs.unlink('casket.tcb');
+                  });
+
+                }
+              });
+            });
+          });
+        }
+      });
+    });
+  });
+
+}, 200);
+
 /*
 (function() {
   sys.puts("== Sample: BDB ==");

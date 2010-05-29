@@ -2009,7 +2009,7 @@ class CUR : TCWrap {
 
     class FirstData : public virtual ArgsData {
       public:
-        FirstData(const Arguments& args) : ArgsData(args) {}
+        FirstData(const Arguments& args) : ArgsData() {}
 
         bool run () {
           return tcw->First();
@@ -2021,7 +2021,7 @@ class CUR : TCWrap {
     class FirstAsyncData : public FirstData, public AsyncData {
       public:
         FirstAsyncData(const Arguments& args)
-          : AsyncData(args[0]), FirstData(args) {}
+          : AsyncData(args[0]), FirstData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(First)
@@ -2040,7 +2040,7 @@ class CUR : TCWrap {
     class LastAsyncData : public LastData, public AsyncData {
       public:
         LastAsyncData(const Arguments& args)
-          : AsyncData(args[0]), LastData(args) {}
+          : AsyncData(args[0]), LastData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Last)
@@ -2059,7 +2059,7 @@ class CUR : TCWrap {
     class JumpAsyncData : public JumpData, public AsyncData {
       public:
         JumpAsyncData(const Arguments& args)
-          : AsyncData(args[1]), JumpData(args) {}
+          : AsyncData(args[1]), JumpData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Jump)
@@ -2078,7 +2078,7 @@ class CUR : TCWrap {
     class PrevAsyncData : public PrevData, public AsyncData {
       public:
         PrevAsyncData(const Arguments& args)
-          : AsyncData(args[0]), PrevData(args) {}
+          : AsyncData(args[0]), PrevData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Prev)
@@ -2097,7 +2097,7 @@ class CUR : TCWrap {
     class NextAsyncData : public NextData, public AsyncData {
       public:
         NextAsyncData(const Arguments& args)
-          : AsyncData(args[0]), NextData(args) {}
+          : AsyncData(args[0]), NextData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Next)
@@ -2126,7 +2126,7 @@ class CUR : TCWrap {
     class PutAsyncData : public PutData, public AsyncData {
       public:
         PutAsyncData(const Arguments& args)
-          : AsyncData(args[2]), PutData(args) {}
+          : AsyncData(args[2]), PutData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Put)
@@ -2145,7 +2145,7 @@ class CUR : TCWrap {
     class OutAsyncData : public OutData, public AsyncData {
       public:
         OutAsyncData(const Arguments& args)
-          : AsyncData(args[0]), OutData(args) {}
+          : AsyncData(args[0]), OutData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Out)
@@ -2165,7 +2165,7 @@ class CUR : TCWrap {
     class KeyAsyncData : public KeyData, public AsyncData {
       public:
         KeyAsyncData(const Arguments& args)
-          : AsyncData(args[1]), KeyData(args) {}
+          : AsyncData(args[0]), KeyData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC2(Key)
@@ -2185,7 +2185,7 @@ class CUR : TCWrap {
     class ValAsyncData : public ValData, public AsyncData {
       public:
         ValAsyncData(const Arguments& args)
-          : AsyncData(args[1]), ValData(args) {}
+          : AsyncData(args[0]), ValData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC2(Val)
