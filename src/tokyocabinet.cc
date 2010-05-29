@@ -250,6 +250,16 @@ class TCWrap : public ObjectWrap {
     virtual const char* Path () { assert(false); }
     virtual uint64_t Rnum () { assert(false); }
     virtual uint64_t Fsiz () { assert(false); }
+    // for BDB Cursor
+    virtual bool First () { assert(false); } // for CUR
+    virtual bool Last () { assert(false); } // for CUR
+    virtual bool Jump (char *kbuf, int ksiz) { assert(false); } // for CUR
+    virtual bool Prev () { assert(false); } // for CUR
+    virtual bool Next () { assert(false); } // for CUR
+    virtual bool Put (char *kbuf, int ksiz, int cpmode) { assert(false); } // for CUR
+    virtual bool Out () { assert(false); } // for CUR
+    virtual char * Key (int *vsiz_p) { assert(false); } // for CUR
+    virtual char * Val (int *vsiz_p) { assert(false); } // for CUR
 
   protected:
     class ArgsData {
@@ -1249,13 +1259,13 @@ class HDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args) {
-          omode = ARG1->IsUndefined() ? HDBOREADER : ARG1->Int32Value();
+          omode = NOU(ARG1) ? HDBOREADER : ARG1->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (ARG1->IsUndefined() || ARG1->IsNumber());
+            (NOU(ARG1) || ARG1->IsNumber());
         }
 
         bool
@@ -1662,13 +1672,13 @@ class BDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args) {
-          omode = ARG1->IsUndefined() ? BDBOREADER : ARG1->Int32Value();
+          omode = NOU(ARG1) ? BDBOREADER : ARG1->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (ARG1->IsUndefined() || ARG1->IsNumber());
+            (NOU(ARG1) || ARG1->IsNumber());
         }
 
         bool
@@ -1888,7 +1898,7 @@ class BDB : public TCWrap {
 const Persistent<FunctionTemplate> BDB::Tmpl =
   Persistent<FunctionTemplate>::New(FunctionTemplate::New(BDB::New));
 
-class CUR : ObjectWrap {
+class CUR : TCWrap {
   public:
     CUR (TCBDB *bdb) {
       cur = tcbdbcurnew(bdb);
@@ -1920,15 +1930,24 @@ class CUR : ObjectWrap {
       DEFINE_PREFIXED_CONSTANT(tmpl, BDB, CPBEFORE);
       DEFINE_PREFIXED_CONSTANT(tmpl, BDB, CPAFTER);
 
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "first", First);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "last", Last);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "jump", Jump);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "prev", Prev);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "next", Next);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", Put);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", Out);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "key", Key);
-      NODE_SET_PROTOTYPE_METHOD(tmpl, "val", Val);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "first", FirstSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "firstAsync", FirstAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "last", LastSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "lastAsync", LastAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "jump", JumpSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "jumpAsync", JumpAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "prev", PrevSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "prevAsync", PrevAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "next", NextSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "nextAsync", NextAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", PutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putAsync", PutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", OutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outAsync", OutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "key", KeySync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "keyAsync", KeyAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "val", ValSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "valAsync", ValAsync);
 
       target->Set(String::New("BDBCUR"), tmpl->GetFunction());
     }
@@ -1948,144 +1967,228 @@ class CUR : ObjectWrap {
       return THIS;
     }
 
-    static Handle<Value>
-    First (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcbdbcurfirst(Backend(THIS));
-      return Boolean::New(success);
+    int Ecode () {
+      return tcbdbecode(cur->bdb);
     }
 
-    /*
-    struct AsyncData {
-      CUR *cur;
-      Persistent<Function> cb;
+    bool First () {
+      return tcbdbcurfirst(cur);
+    }
+
+    bool Last () {
+      return tcbdbcurlast(cur);
+    }
+
+    bool Jump (char *kbuf, int ksiz) {
+      return tcbdbcurjump(cur, kbuf, ksiz);
+    }
+
+    bool Prev () {
+      return tcbdbcurprev(cur);
+    }
+
+    bool Next () {
+      return tcbdbcurnext(cur);
+    }
+
+    bool Put (char *kbuf, int ksiz, int cpmode) {
+      return tcbdbcurput(cur, kbuf, ksiz, cpmode);
+    }
+
+    bool Out () {
+      return tcbdbcurout(cur);
+    }
+
+    char * Key (int *vsiz_p) {
+      return static_cast<char *>(tcbdbcurkey(cur, vsiz_p));
+    }
+
+    char * Val (int *vsiz_p) {
+      return static_cast<char *>(tcbdbcurval(cur, vsiz_p));
+    }
+
+    class FirstData : public virtual ArgsData {
+      public:
+        FirstData(const Arguments& args) : ArgsData(args) {}
+
+        bool run () {
+          return tcw->First();
+        }
     };
 
-    static Handle<Value>
-    FirstAsync (const Arguments& args) {
-      HandleScope scope;
-      AsyncData data = new AsyncData;
-      data->cur = Unwrap(THIS);
-      data->cur->Ref();
-      data->cb = args[0]->IsFunction() ? 
-        Persistent<Function>::New(Function::Cast(args[0])) :
-        Persistent<Function>();
-      eio_custom(ExecFirst, EIO_PRI_DEFAULT, AfterFirst, data);
-      ev_ref(EV_DEFAULT_UC);
-      return Undefined();
-    }
+    DEFINE_SYNC(First)
 
-    static int
-    Exec##name (eio_req *req) {
-      name##AsyncData *data = static_cast<name##AsyncData *>(req->data);
-      req->result = data->run() ? TCESUCCESS : data->ecode();
-      return 0;
-    }
+    class FirstAsyncData : public FirstData, public AsyncData {
+      public:
+        FirstAsyncData(const Arguments& args)
+          : AsyncData(args[0]), FirstData(args) {}
+    };
 
-    static int
-    After##name (eio_req *req) {
-      HandleScope scope;
-      name##AsyncData *data = static_cast<name##AsyncData *>(req->data);
-      if (data->hasCallback) {
-        data->callCallback(Integer::New(req->result));
-      }
-      ev_unref(EV_DEFAULT_UC);
-      delete data;
-      return 0;
-    }
-    */
+    DEFINE_ASYNC(First)
 
-    static Handle<Value>
-    Last (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcbdbcurlast(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    class LastData : public virtual ArgsData {
+      public:
+        LastData(const Arguments& args) : ArgsData(args) {}
 
-    static Handle<Value>
-    Jump (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcbdbcurjump(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0));
-      return Boolean::New(success);
-    }
+        bool run () {
+          return tcw->Last();
+        }
+    };
 
-    static Handle<Value>
-    Prev (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcbdbcurprev(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    DEFINE_SYNC(Last)
 
-    static Handle<Value>
-    Next (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcbdbcurnext(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    class LastAsyncData : public LastData, public AsyncData {
+      public:
+        LastAsyncData(const Arguments& args)
+          : AsyncData(args[0]), LastData(args) {}
+    };
 
-    static Handle<Value>
-    Put (const Arguments& args) {
-      HandleScope scope;
-      if (args.Length() < 1 ||
-          !ARG2->IsNumber()) {
-        return THROW_BAD_ARGS;
-      }
-      bool success = tcbdbcurput(
-          Backend(THIS),
-          VSTRPTR(ARG0),
-          VSTRSIZ(ARG0),
-          NOU(ARG1) ? BDBCPCURRENT : VINT32(ARG1));
-      return Boolean::New(success);
-    }
+    DEFINE_ASYNC(Last)
 
-    static Handle<Value>
-    Out (const Arguments& args) {
-      HandleScope scope;
-      bool success = tcbdbcurout(
-          Backend(THIS));
-      return Boolean::New(success);
-    }
+    class JumpData : public KeyData {
+      public:
+        JumpData(const Arguments& args) : KeyData(args) {}
 
-    static Handle<Value>
-    Key (const Arguments& args) {
-      HandleScope scope;
-      int ksiz;
-      char *key = static_cast<char *>(tcbdbcurkey(
-          Backend(THIS),
-          &ksiz));
-      if (key == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(key, ksiz);
-        tcfree(key);
-        return ret;
-      }
-    }
+        bool run () {
+          return tcw->Jump(*kbuf, ksiz);
+        }
+    };
 
-    static Handle<Value>
-    Val (const Arguments& args) {
-      HandleScope scope;
-      int vsiz;
-      char *val = static_cast<char *>(tcbdbcurval(
-          Backend(THIS),
-          &vsiz));
-      if (val == NULL) {
-        return Null();
-      } else {
-        Local<String> ret = String::New(val, vsiz);
-        tcfree(val);
-        return ret;
-      }
-    }
+    DEFINE_SYNC(Jump)
+
+    class JumpAsyncData : public JumpData, public AsyncData {
+      public:
+        JumpAsyncData(const Arguments& args)
+          : AsyncData(args[1]), JumpData(args) {}
+    };
+
+    DEFINE_ASYNC(Jump)
+
+    class PrevData : public virtual ArgsData {
+      public:
+        PrevData(const Arguments& args) : ArgsData(args) {}
+
+        bool run () {
+          return tcw->Prev();
+        }
+    };
+
+    DEFINE_SYNC(Prev)
+
+    class PrevAsyncData : public PrevData, public AsyncData {
+      public:
+        PrevAsyncData(const Arguments& args)
+          : AsyncData(args[0]), PrevData(args) {}
+    };
+
+    DEFINE_ASYNC(Prev)
+
+    class NextData : public virtual ArgsData {
+      public:
+        NextData(const Arguments& args) : ArgsData(args) {}
+
+        bool run () {
+          return tcw->Next();
+        }
+    };
+
+    DEFINE_SYNC(Next)
+
+    class NextAsyncData : public NextData, public AsyncData {
+      public:
+        NextAsyncData(const Arguments& args)
+          : AsyncData(args[0]), NextData(args) {}
+    };
+
+    DEFINE_ASYNC(Next)
+
+    class PutData : public KeyData {
+      private:
+        int cpmode;
+
+      public:
+        PutData(const Arguments& args) : KeyData(args) {
+          cpmode = NOU(args[1]) ?
+            BDBCPCURRENT : args[1]->Int32Value();
+        }
+
+        static bool checkArgs (const Arguments& args) {
+          return NOU(args[1]) || args[1]->IsNumber();
+        }
+
+        bool run () {
+          return tcw->Put(*kbuf, ksiz, cpmode);
+        }
+    };
+
+    DEFINE_SYNC(Put)
+
+    class PutAsyncData : public PutData, public AsyncData {
+      public:
+        PutAsyncData(const Arguments& args)
+          : AsyncData(args[2]), PutData(args) {}
+    };
+
+    DEFINE_ASYNC(Put)
+
+    class OutData : public virtual ArgsData {
+      public:
+        OutData(const Arguments& args) : ArgsData(args) {}
+
+        bool run () {
+          return tcw->Out();
+        }
+    };
+
+    DEFINE_SYNC(Out)
+
+    class OutAsyncData : public OutData, public AsyncData {
+      public:
+        OutAsyncData(const Arguments& args)
+          : AsyncData(args[0]), OutData(args) {}
+    };
+
+    DEFINE_ASYNC(Out)
+
+    class KeyData : public ValueData {
+      public:
+        KeyData(const Arguments& args) {}
+
+        bool run () {
+          vbuf = tcw->Key(&vsiz);
+          return vbuf != NULL;
+        }
+    };
+
+    DEFINE_SYNC2(Key)
+
+    class KeyAsyncData : public KeyData, public AsyncData {
+      public:
+        KeyAsyncData(const Arguments& args)
+          : AsyncData(args[1]), KeyData(args) {}
+    };
+
+    DEFINE_ASYNC2(Key)
+
+    class ValData : public ValueData {
+      public:
+        ValData(const Arguments& args) {}
+
+        bool run () {
+          vbuf = tcw->Val(&vsiz);
+          return vbuf != NULL;
+        }
+    };
+
+    DEFINE_SYNC2(Val)
+
+    class ValAsyncData : public ValData, public AsyncData {
+      public:
+        ValAsyncData(const Arguments& args)
+          : AsyncData(args[1]), ValData(args) {}
+    };
+
+    DEFINE_ASYNC2(Val)
 };
 
 class FDB : ObjectWrap {
