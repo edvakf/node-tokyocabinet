@@ -1424,8 +1424,6 @@ class BDB : public TCWrap {
   public:
     TCBDB *bdb;
 
-    const static Persistent<FunctionTemplate> Tmpl;
-
     BDB () {
       bdb = tcbdbnew();
     }
@@ -1434,87 +1432,97 @@ class BDB : public TCWrap {
       tcbdbdel(bdb);
     }
 
+    // HasInstance is taken from node_buffer.h (no need to make HandleScope?)
+    static inline bool
+    HasInstance(v8::Handle<v8::Value> val) {
+      if (!val->IsObject()) return false;
+      v8::Local<v8::Object> obj = val->ToObject();
+      return tmpl->HasInstance(obj);
+    }
+
     static void
     Initialize (const Handle<Object> target) {
       HandleScope scope;
-      set_ecodes(Tmpl);
-      Tmpl->InstanceTemplate()->SetInternalFieldCount(1);
+      set_ecodes(tmpl);
+      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, TLARGE);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, TDEFLATE);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, TBZIP);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, TTCBS);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OREADER);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OWRITER);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OCREAT);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OTRUNC);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, ONOLCK);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OLCKNB);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, BDB, OTSYNC);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, TLARGE);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, TDEFLATE);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, TBZIP);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, TTCBS);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OREADER);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OWRITER);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OCREAT);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OTRUNC);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, ONOLCK);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OLCKNB);
+      DEFINE_PREFIXED_CONSTANT(tmpl, BDB, OTSYNC);
 
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "errmsg", ErrmsgSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "ecode", EcodeSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setmutex", SetmutexSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tune", TuneSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setcache", SetcacheSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setxmsiz", SetxmsizSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setdfunit", SetdfunitSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "open", OpenSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "openAsync", OpenAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "close", CloseSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "closeAsync", CloseAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "put", PutSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putAsync", PutAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putkeep", PutkeepSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putkeepAsync", PutkeepAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putcat", PutcatSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putcatAsync", PutcatAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putdup", PutdupSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putdupAsync", PutdupAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putlist", PutlistSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putlistAsync", PutlistAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "out", OutSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "outAsync", OutAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "outlist", OutlistSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "outlistAsync", OutlistAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "get", GetSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "getAsync", GetAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "getlist", GetlistSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "getlistAsync", GetlistAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vnum", VnumSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vnumAsync", VnumAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vsiz", VsizSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vsizAsync", VsizAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "range", RangeSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "rangeAsync", RangeAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fwmkeys", FwmkeysSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fwmkeysAsync", FwmkeysAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "addint", AddintSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "addintAsync", AddintAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "adddouble", AdddoubleSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "adddoubleAsync", AdddoubleAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "sync", SyncSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "syncAsync", SyncAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "optimize", OptimizeSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "optimizeAsync", OptimizeAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vanish", VanishSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vanishAsync", VanishAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "copy", CopySync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "copyAsync", CopyAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranbegin", TranbeginSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranbeginAsync", TranbeginAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "trancommit", TrancommitSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "trancommitAsync", TrancommitAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranabort", TranabortSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranabortAsync", TranabortAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "path", PathSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "rnum", RnumSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fsiz", FsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "errmsg", ErrmsgSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "ecode", EcodeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setmutex", SetmutexSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tune", TuneSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setcache", SetcacheSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setxmsiz", SetxmsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setdfunit", SetdfunitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "open", OpenSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "openAsync", OpenAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "close", CloseSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "closeAsync", CloseAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", PutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putAsync", PutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeep", PutkeepSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeepAsync", PutkeepAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcat", PutcatSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcatAsync", PutcatAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putdup", PutdupSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putdupAsync", PutdupAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putlist", PutlistSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putlistAsync", PutlistAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", OutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outAsync", OutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outlist", OutlistSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outlistAsync", OutlistAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "get", GetSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "getAsync", GetAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "getlist", GetlistSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "getlistAsync", GetlistAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vnum", VnumSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vnumAsync", VnumAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsiz", VsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsizAsync", VsizAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "range", RangeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "rangeAsync", RangeAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fwmkeys", FwmkeysSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fwmkeysAsync", FwmkeysAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addint", AddintSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addintAsync", AddintAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddouble", AdddoubleSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddoubleAsync", AdddoubleAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "sync", SyncSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "syncAsync", SyncAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimize", OptimizeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimizeAsync", OptimizeAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanish", VanishSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanishAsync", VanishAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copy", CopySync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copyAsync", CopyAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbegin", TranbeginSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbeginAsync", TranbeginAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommit", TrancommitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommitAsync", TrancommitAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabort", TranabortSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabortAsync", TranabortAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "path", PathSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "rnum", RnumSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fsiz", FsizSync);
 
-      target->Set(String::New("BDB"), Tmpl->GetFunction());
+      target->Set(String::New("BDB"), tmpl->GetFunction());
     }
 
   private:
+
+    static Persistent<FunctionTemplate> tmpl;
 
     static Handle<Value>
     New (const Arguments& args) {
@@ -1908,9 +1916,6 @@ class BDB : public TCWrap {
     DEFINE_SYNC2(Fsiz)
 };
 
-const Persistent<FunctionTemplate> BDB::Tmpl =
-  Persistent<FunctionTemplate>::New(FunctionTemplate::New(BDB::New));
-
 class CUR : TCWrap {
   public:
     CUR (TCBDB *bdb) {
@@ -1972,7 +1977,7 @@ class CUR : TCWrap {
     New (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 1 ||
-          !BDB::Tmpl->HasInstance(ARG0)) {
+          !BDB::HasInstance(ARG0)) {
         return THROW_BAD_ARGS;
       }
       TCBDB *bdb = ObjectWrap::Unwrap<BDB>(Local<Object>::Cast(ARG0))->bdb;
@@ -2575,8 +2580,6 @@ class TDB : public TCWrap {
   public:
     TCTDB *tdb;
 
-    const static Persistent<FunctionTemplate> Tmpl;
-
     TDB () {
       tdb = tctdbnew();
     }
@@ -2585,89 +2588,101 @@ class TDB : public TCWrap {
       tctdbdel(tdb);
     }
 
+    // HasInstance is taken from node_buffer.h (no need to make HandleScope?)
+    static inline bool
+    HasInstance(v8::Handle<v8::Value> val) {
+      if (!val->IsObject()) return false;
+      v8::Local<v8::Object> obj = val->ToObject();
+      return tmpl->HasInstance(obj);
+    }
+
     static void
     Initialize (const Handle<Object> target) {
       HandleScope scope;
-      Tmpl->InstanceTemplate()->SetInternalFieldCount(1);
-      set_ecodes(Tmpl);
 
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, TLARGE);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, TDEFLATE);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, TBZIP);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, TTCBS);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OREADER);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OWRITER);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OCREAT);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OTRUNC);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ONOLCK);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OLCKNB);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, OTSYNC);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITLEXICAL);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITDECIMAL);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITTOKEN);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITQGRAM);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITOPT);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITVOID);
-      DEFINE_PREFIXED_CONSTANT(Tmpl, TDB, ITKEEP);
+      tmpl = Persistent<FunctionTemplate>(FunctionTemplate::New(New));
+      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
+      set_ecodes(tmpl);
 
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "errmsg", ErrmsgSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "ecode", EcodeSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setmutex", SetmutexSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tune", TuneSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setcache", SetcacheSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setxmsiz", SetxmsizSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setdfunit", SetdfunitSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "open", OpenSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "openAsync", OpenAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "close", CloseSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "closeAsync", CloseAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "put", PutSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putAsync", PutAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putkeep", PutkeepSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putkeepAsync", PutkeepAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putcat", PutcatSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "putcatAsync", PutcatAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "out", OutSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "outAsync", OutAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "get", GetSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "getAsync", GetAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vsiz", VsizSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vsizAsync", VsizAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "iterinit", IterinitSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "iterinitAsync", IterinitAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "iternext", IternextSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "iternextAsync", IternextAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fwmkeys", FwmkeysSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fwmkeysAsync", FwmkeysAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "addint", AddintSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "addintAsync", AddintAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "adddouble", AdddoubleSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "adddoubleAsync", AdddoubleAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "sync", SyncSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "syncAsync", SyncAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "optimize", OptimizeSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "optimizeAsync", OptimizeAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vanish", VanishSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "vanishAsync", VanishAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "copy", CopySync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "copyAsync", CopyAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranbegin", TranbeginSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranbeginAsync", TranbeginAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "trancommit", TrancommitSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "trancommitAsync", TrancommitAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranabort", TranabortSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "tranabortAsync", TranabortAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "path", PathSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "rnum", RnumSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "fsiz", FsizSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setindex", SetindexSync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "setindexAsync", SetindexAsync);
-      NODE_SET_PROTOTYPE_METHOD(Tmpl, "genuid", Genuid);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, TLARGE);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, TDEFLATE);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, TBZIP);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, TTCBS);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OREADER);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OWRITER);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OCREAT);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OTRUNC);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ONOLCK);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OLCKNB);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, OTSYNC);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITLEXICAL);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITDECIMAL);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITTOKEN);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITQGRAM);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITOPT);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITVOID);
+      DEFINE_PREFIXED_CONSTANT(tmpl, TDB, ITKEEP);
 
-      target->Set(String::New("TDB"), Tmpl->GetFunction());
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "errmsg", ErrmsgSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "ecode", EcodeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setmutex", SetmutexSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tune", TuneSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setcache", SetcacheSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setxmsiz", SetxmsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setdfunit", SetdfunitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "open", OpenSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "openAsync", OpenAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "close", CloseSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "closeAsync", CloseAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "put", PutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putAsync", PutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeep", PutkeepSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putkeepAsync", PutkeepAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcat", PutcatSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "putcatAsync", PutcatAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "out", OutSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "outAsync", OutAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "get", GetSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "getAsync", GetAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsiz", VsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vsizAsync", VsizAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iterinit", IterinitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iterinitAsync", IterinitAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iternext", IternextSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "iternextAsync", IternextAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fwmkeys", FwmkeysSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fwmkeysAsync", FwmkeysAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addint", AddintSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "addintAsync", AddintAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddouble", AdddoubleSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "adddoubleAsync", AdddoubleAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "sync", SyncSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "syncAsync", SyncAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimize", OptimizeSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "optimizeAsync", OptimizeAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanish", VanishSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "vanishAsync", VanishAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copy", CopySync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "copyAsync", CopyAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbegin", TranbeginSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranbeginAsync", TranbeginAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommit", TrancommitSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "trancommitAsync", TrancommitAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabort", TranabortSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "tranabortAsync", TranabortAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "path", PathSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "rnum", RnumSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "fsiz", FsizSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setindex", SetindexSync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "setindexAsync", SetindexAsync);
+      NODE_SET_PROTOTYPE_METHOD(tmpl, "genuid", Genuid);
+
+      target->Set(String::New("TDB"), tmpl->GetFunction());
     }
 
   private:
+
+    static Persistent<FunctionTemplate> tmpl;
 
     static Handle<Value>
     New (const Arguments& args) {
@@ -3107,9 +3122,6 @@ class TDB : public TCWrap {
     }
 };
 
-const Persistent<FunctionTemplate> TDB::Tmpl =
-  Persistent<FunctionTemplate>::New(FunctionTemplate::New(TDB::New));
-
 class QRY : TCWrap {
   public:
     QRY (TCTDB *db) {
@@ -3192,7 +3204,7 @@ class QRY : TCWrap {
     New (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 1 ||
-          !TDB::Tmpl->HasInstance(ARG0)) {
+          !TDB::HasInstance(ARG0)) {
         return THROW_BAD_ARGS;
       }
       TCTDB *db = ObjectWrap::Unwrap<TDB>(Local<Object>::Cast(ARG0))->tdb;
@@ -3328,7 +3340,7 @@ class QRY : TCWrap {
           Local<Object> oqry;
           for (int i = 0; i < num; i++) {
             oqry = others->CloneElementAt(i);
-            if (TDB::Tmpl->HasInstance(oqry)) {
+            if (TDB::HasInstance(oqry)) {
               qrys[qnum++] = Backend(oqry);
             }
           }
