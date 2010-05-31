@@ -87,7 +87,6 @@ samples.push(function() {
 
         if (--n === 0) {
           bdb.getAsync("foo", function(e, value) {
-            if (e) sys.error(bdb.errmsg(e));
             sys.puts(value);
 
             var cur = new CUR(bdb);
@@ -176,6 +175,65 @@ samples.push(function() {
 
 });
 
+samples.push(function() {
+  sys.puts("== Sample: TDB ==");
+  var TDB = TC.TDB;
+  var QRY = TC.TDBQRY;
+
+  var tdb = new TDB;
+  // this line is necessary for an async operation
+  if (!tdb.setmutex()) throw tdb.errmsg();
+
+  tdb.openAsync('casket.tct', TDB.OWRITER | TDB.OCREAT, function(e) {
+    if (e) sys.error(tdb.errmsg(e));
+
+    var n = 3;
+    [[tdb.genuid(), {"name": "mikio", "age": "30", "lang": "ja,en,c"}], 
+    [tdb.genuid(), {"name": "joker", "age": "19", "lang": "en,es"}],
+    [tdb.genuid(), {"name": "falcon", "age": "31","lang": "ja"}]].forEach(function(kv) {
+
+      tdb.putAsync(kv[0], kv[1], function(e) {
+        if (e) sys.error(tdb.errmsg(e));
+
+        if (--n === 0) {
+          var qry = new QRY(tdb);
+          qry.addcond("age", QRY.QCNUMGE, "20");
+          qry.addcond("lang", QRY.QCSTROR, "ja,en");
+          qry.setorder("name", QRY.QOSTRASC);
+          qry.setlimit(10, 0);
+          qry.searchAsync(function(e, res) {
+
+            n = res.length;
+            res.forEach(function(r) {
+              tdb.getAsync(r, function(e, cols) {
+                if (e) sys.error(tdb.errmsg(e));
+
+                if (cols) {
+                  sys.print(r);
+                  Object.keys(cols).forEach(function(name) {
+                    sys.print("\t" + name + "\t" + cols[name])
+                  });
+                  sys.print("\n");
+                }
+
+                if (--n === 0) {
+                  tdb.closeAsync(function(e) {
+                    if (e) sys.error(tdb.errmsg(e));
+                    fs.unlink('casket.tct');
+
+                    next_sample();
+                  });
+                }
+
+              });
+            });
+          });
+        }
+      });
+    });
+  });
+
+});
 /*
 
 (function() {
