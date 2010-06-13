@@ -5,6 +5,8 @@ var sys = require('sys');
 var TC = require('../build/default/tokyocabinet');
 var fs = require('fs');
 
+sys.puts("Tokyo Cabinet version " + TC.VERSION);
+
 (function() {
   sys.puts("== Sample: HDB ==");
   var HDB = TC.HDB;
@@ -33,7 +35,7 @@ var fs = require('fs');
   while ((key = hdb.iternext()) !== null) {
     value = hdb.get(key);
     if (value !== null) {
-      sys.puts(value);
+      sys.puts(key + ':' + value);
     }
   }
 
@@ -194,6 +196,7 @@ var fs = require('fs');
   if (!adb.open('casket.tcb')) {
     sys.error("open error");
   }
+  sys.puts(adb.misc("ecode"))
 
   if (!adb.put("foo", "hop") ||
       !adb.put("bar", "step") ||
