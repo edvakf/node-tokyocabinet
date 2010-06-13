@@ -9,8 +9,53 @@ So far only implemented interfaces defined in tokyocabinet.idl.
 
  $ node-waf configure build
 
+= Warning
+
+THIS SOFTWARE IS STILL AN ALPHA VERSION.
+
+= Sync vs. Async
+
+Sync interface (not recommended because we are using Node.js!).
+
+ var hdb = new HDB;
+ // open database
+ var success = hdb.open('casket.tch', HDB.OWRITER | HDB.OCREAT);
+ if (!success) throw hdb.errmsg();
+ // store a value
+ var success = hdb.put('foo', 'bar');
+ if (!success) throw hdb.errmsg();
+ // retrieve a value
+ var v = hdb.get('foo'); // => 'bar'
+ if (v === null) throw hdb.errmsg();
+ sys.puts(v);
+
+Async interface.
+
+ var hdb = new HDB;
+ // 'setmutex' makes database multi-thread safe
+ hdb.setmutex();
+ // open database
+ hdb.openAsync('casket.tch', HDB.OWRITER | HDB.OCREAT, function(err){
+   if (err) throw hdb.errmsg(err);
+   // store a value
+   hdb.putAsync('foo', 'bar', function(err){
+     if (err) throw hdb.errmsg(err);
+     // retrieve a value
+     hdb.get('foo', function(err, val){
+       if (err) throw hdb.errmsg(err);
+       sys.puts(val);
+     });
+   });
+ });
+ hdb.put('foo', 'bar');
+ var v = hdb.get('foo'); // => 'bar'
+
+As you can see, it's very cumbersome to write with Async APIs. 
+I'm planning to write the Async wrapper API to make it easy to use.
+Or you can wrap with your preferred library (Promise, Deferred, Do, etc.)
+
 = ToDo
-- Write async interface.
+- Write async wrapper.
 - More tests.
 
 = License
