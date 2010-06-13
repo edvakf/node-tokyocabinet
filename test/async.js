@@ -234,102 +234,56 @@ samples.push(function() {
   });
 
 });
-/*
 
-(function() {
-  sys.puts("== Sample: TDB ==");
-
-  var TDB = TC.TDB;
-  var QRY = TC.TDBQRY;
-
-  var tdb = new TDB();
-
-  if (!tdb.open('casket.tct', TDB.OWRITER | TDB.OCREAT)) {
-    sys.error(tdb.errmsg());
-  }
-
-  var pk = tdb.genuid();
-  var cols = {"name": "mikio", "age": "30", "lang": "ja,en,c"};
-  if (!tdb.put(pk, cols)) {
-    sys.error(tdb.errmsg());
-  }
-
-  var pk = tdb.genuid();
-  var cols = {"name": "joker", "age": "19", "lang": "en,es"};
-  if (!tdb.put(pk, cols)) {
-    sys.error(tdb.errmsg());
-  }
-
-  pk = "12345";
-  cols = {};
-  cols.name = "falcon";
-  cols.age = "31";
-  cols.lang = "ja";
-  if (!tdb.put(pk, cols)) {
-    sys.error(tdb.errmsg());
-  }
-
-  var qry = new QRY(tdb);
-  qry.addcond("age", QRY.QCNUMGE, "20");
-  qry.addcond("lang", QRY.QCSTROR, "ja,en");
-  qry.setorder("name", QRY.QOSTRASC);
-  qry.setlimit(10, 0);
-  var res = qry.search();
-  res.forEach(function(r) {
-    var cols = tdb.get(r);
-    if (cols) {
-      sys.print(r);
-      Object.keys(cols).forEach(function(name) {
-        sys.print("\t" + name + "\t" + cols[name])
-      });
-      sys.print("\n");
-    }
-  });
-
-  if (!tdb.close()) {
-    sys.error(tdb.errmsg());
-  }
-
-  fs.unlink('casket.tct');
-}());
-
-(function() {
+samples.push(function() {
   sys.puts("== Sample: ADB ==");
-  
   var ADB = TC.ADB;
 
-  var adb = new ADB();
+  var adb = new ADB;
 
-  if (!adb.open('casket.tcb')) {
-    sys.error("open error");
-  }
+  // no need to manually set mutex since adb automatically does it on open
+  adb.openAsync('casket.tcb', function(e) {
+    if (e) sys.error(adb.errmsg(e));
 
-  if (!adb.put("foo", "hop") ||
-      !adb.put("bar", "step") ||
-      !adb.put("baz", "jump")) {
-    sys.error("put error");
-  }
+    var n = 3;
+    [["foo", "hop"], ["bar", "step"], ["baz", "jump"]].forEach(function(kv) {
+      adb.putAsync(kv[0], kv[1], function(e) {
+        if (e) sys.error([e, "put error"]);
 
-  var value = adb.get("foo");
-  if (value) {
-    sys.puts(value);
-  } else {
-    sys.error("get error");
-  }
+        if (--n === 0) {
+          adb.getAsync("foo", function(e, value) {
+            if (e) sys.error([e, 'get error']);
+            sys.puts(value);
 
-  adb.iterinit();
-  var key;
-  while((key = adb.iternext()) != null) {
-    var value = adb.get(key);
-    if (value) {
-      sys.puts(key + ':' + value);
-    }
-  }
+            adb.iterinitAsync(function(e) {
+              if (e) sys.error([e, 'iterinit error']);
 
-  if (!adb.close()) {
-    sys.error("close error");
-  }
+              adb.iternextAsync(function func(e ,key) { // recursive asynchronous function
+                if (key !== null) { // if next key exsists
 
-  fs.unlink('casket.tcb');
-}());
-*/
+                  adb.getAsync(key, function(e, value) {
+                    if (e) sys.error([e, 'get error']);
+                    sys.puts(key + ':' + value);
+                    adb.iternextAsync(func);
+                  });
+
+                } else { // if next key does not exist
+
+                  adb.closeAsync(function(e) {
+                    if (e) sys.error([e, 'close error']);
+                    fs.unlink('casket.tcb');
+
+                    next_sample();
+                  });
+
+                }
+              });
+            });
+          });
+        }
+      });
+    });
+  });
+
+});
+
