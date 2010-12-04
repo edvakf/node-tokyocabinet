@@ -28,11 +28,19 @@ samples.push(function() {
 
   var t = Date.now();
   for (var i = 0; i < put_count; i++) {
-    if (!syncdb.put('key' + i, '0123456789')) {
+    if (!syncdb.put('key' + i, 'val' + i + ' 0123456789')) {
       sys.error(hdb.errmsg());
     }
   }
   sys.puts(Date.now() - t);
+  for (var i = 0; i < 20; i++) {
+    var val = syncdb.get('key' + i);
+    if (!val) {
+      sys.error(hdb.errmsg());
+    } else {
+      sys.puts(val);
+    }
+  }
 
   next_sample();
 });
@@ -50,11 +58,20 @@ samples.push(function() {
     var t = Date.now();
     var n = put_count;
     for (var i = 0; i < put_count; i++) {
-      asyncdb.putAsync('key' + i, '0123456789', function(e) {
+      asyncdb.putAsync('key' + i, 'val' + i + ' 0123456789', function(e) {
         if (e) sys.error(asyncdb.errmsg(e));
         if (--n === 0) {
           sys.puts(Date.now() - t);
-          next_sample();
+
+          for (var i = 0; i < 20; i++) {
+            asyncdb.getAsync('key' + i, function(e, val) {
+              if (e) {
+                sys.puts(hdb.errmsg(e));
+              } else {
+                sys.puts(val);
+              }
+            });
+          }
         }
       });
     }
