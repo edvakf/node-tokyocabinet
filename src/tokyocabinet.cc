@@ -19,20 +19,6 @@
 
 #define THIS args.This()
 
-#define ARG0 args[0]
-#define ARG1 args[1]
-#define ARG2 args[2]
-#define ARG3 args[3]
-#define ARG4 args[4]
-#define ARG5 args[5]
-#define ARG6 args[6]
-
-#define VDOUBLE(obj) ((obj)->NumberValue())
-#define VINT32(obj) ((obj)->Int32Value())
-#define VINT64(obj) ((obj)->IntegerValue())
-#define VSTRPTR(obj) (*String::Utf8Value(obj))
-#define VSTRSIZ(obj) (String::Utf8Value(obj).length())
-#define VBOOL(obj) ((obj)->BooleanValue())
 // null or undefined
 #define NOU(obj) ((obj)->IsNull() || (obj)->IsUndefined())
 
@@ -48,7 +34,7 @@ inline TCLIST* arytotclist (const Handle<Array> ary) {
   for (int i = 0; i < len; i++) {
     val = ary->Get(Integer::New(i));
     if (val->IsString()) {
-      tclistpush2(list, VSTRPTR(val));
+      tclistpush2(list, *String::Utf8Value(val));
     }
   }
   return list;
@@ -74,7 +60,9 @@ inline TCMAP* objtotcmap (const Handle<Object> obj) {
     key = keys->Get(Integer::New(i));
     val = obj->Get(key);
     if (NOU(val)) continue;
-    tcmapput(map, VSTRPTR(key), VSTRSIZ(key), VSTRPTR(val), VSTRSIZ(val));
+    String::Utf8Value u8key(key);
+    String::Utf8Value u8val(val);
+    tcmapput(map, *u8key, u8key.length(), *u8val, u8val.length());
   }
   return map;
 }
@@ -377,7 +365,7 @@ class TCWrap : public ObjectWrap {
         const char *msg;
 
         ErrmsgData (const Arguments& args) : ArgsData(args) {
-          ecode = ARG0->IsNumber() ? ARG0->Int32Value() : tcw->Ecode();
+          ecode = args[0]->IsNumber() ? args[0]->Int32Value() : tcw->Ecode();
         }
 
         bool 
@@ -394,7 +382,7 @@ class TCWrap : public ObjectWrap {
 
         static bool 
         checkArgs (const Arguments& args) {
-          return ARG0->IsNumber() || ARG0->IsUndefined();
+          return args[0]->IsNumber() || args[0]->IsUndefined();
         }
     };
 
@@ -413,12 +401,12 @@ class TCWrap : public ObjectWrap {
 
       public:
         SetxmsizData (const Arguments& args) : ArgsData(args) {
-          xmsiz = ARG0->IsUndefined() ? -1 : ARG0->IntegerValue();
+          xmsiz = args[0]->IsUndefined() ? -1 : args[0]->IntegerValue();
         }
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG0->IsNumber() || ARG0->IsUndefined();
+          return args[0]->IsNumber() || args[0]->IsUndefined();
         }
 
         bool
@@ -433,12 +421,12 @@ class TCWrap : public ObjectWrap {
 
       public:
         SetdfunitData (const Arguments& args) : ArgsData(args) {
-          dfunit = ARG0->IsUndefined() ? -1 : ARG0->Int32Value();
+          dfunit = args[0]->IsUndefined() ? -1 : args[0]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG0->IsNumber() || ARG0->IsUndefined();
+          return args[0]->IsNumber() || args[0]->IsUndefined();
         }
 
         bool
@@ -456,7 +444,7 @@ class TCWrap : public ObjectWrap {
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG0->IsString();
+          return args[0]->IsString();
         }
     };
 
@@ -472,7 +460,7 @@ class TCWrap : public ObjectWrap {
     class CloseAsyncData : public CloseData, public AsyncData {
       public:
         CloseAsyncData (const Arguments& args)
-          : CloseData(args), AsyncData(ARG0), ArgsData(args) {}
+          : CloseData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class KeyData : public virtual ArgsData {
@@ -580,7 +568,7 @@ class TCWrap : public ObjectWrap {
       public:
         PutlistData (const Arguments& args) : KeyData(args), ArgsData(args) {
           HandleScope scope;
-          list = arytotclist(Handle<Array>::Cast(ARG0));
+          list = arytotclist(Handle<Array>::Cast(args[0]));
         }
 
         ~PutlistData () {
@@ -712,7 +700,7 @@ class TCWrap : public ObjectWrap {
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG1->IsNumber();
+          return args[1]->IsNumber();
         }
     };
 
@@ -785,7 +773,7 @@ class TCWrap : public ObjectWrap {
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG1->IsNumber();
+          return args[1]->IsNumber();
         }
 
         bool
@@ -819,7 +807,7 @@ class TCWrap : public ObjectWrap {
     class IterinitAsyncData : public IterinitData, public AsyncData {
       public:
         IterinitAsyncData (const Arguments& args)
-          : IterinitData(args), AsyncData(ARG0), ArgsData(args) {}
+          : IterinitData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class IternextData : public ValueData {
@@ -835,7 +823,7 @@ class TCWrap : public ObjectWrap {
     class IternextAsyncData : public IternextData, public AsyncData {
       public:
         IternextAsyncData (const Arguments& args)
-          : IternextData(args), AsyncData(ARG0), ArgsData(args) {}
+          : IternextData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class AdddoubleData : public KeyData {
@@ -849,7 +837,7 @@ class TCWrap : public ObjectWrap {
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG1->IsNumber();
+          return args[1]->IsNumber();
         }
 
         bool
@@ -883,7 +871,7 @@ class TCWrap : public ObjectWrap {
     class SyncAsyncData : public SyncData, public AsyncData {
       public:
         SyncAsyncData (const Arguments& args)
-          : SyncData(args), AsyncData(ARG0), ArgsData(args) {}
+          : SyncData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class VanishData : public virtual ArgsData {
@@ -898,7 +886,7 @@ class TCWrap : public ObjectWrap {
     class VanishAsyncData : public VanishData, public AsyncData {
       public:
         VanishAsyncData (const Arguments& args)
-          : VanishData(args), AsyncData(ARG0), ArgsData(args) {}
+          : VanishData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class CopyData : public FilenameData {
@@ -929,7 +917,7 @@ class TCWrap : public ObjectWrap {
     class TranbeginAsyncData : public TranbeginData, public AsyncData {
       public:
         TranbeginAsyncData (const Arguments& args)
-          : TranbeginData(args), AsyncData(ARG0), ArgsData(args) {}
+          : TranbeginData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class TrancommitData : public virtual ArgsData {
@@ -944,7 +932,7 @@ class TCWrap : public ObjectWrap {
     class TrancommitAsyncData : public TrancommitData, public AsyncData {
       public:
         TrancommitAsyncData (const Arguments& args)
-          : TrancommitData(args), AsyncData(ARG0), ArgsData(args) {}
+          : TrancommitData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class TranabortData : public virtual ArgsData {
@@ -959,7 +947,7 @@ class TCWrap : public ObjectWrap {
     class TranabortAsyncData : public TranabortData, public AsyncData {
       public:
         TranabortAsyncData (const Arguments& args)
-          : TranabortData(args), AsyncData(ARG0), ArgsData(args) {}
+          : TranabortData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     class PathData : public ArgsData {
@@ -1153,12 +1141,12 @@ class HDB : public TCWrap {
 
       public:
         SetcacheData (const Arguments& args) : ArgsData(args) {
-          rcnum = ARG0->IsUndefined() ? -1 : ARG0->Int32Value();
+          rcnum = args[0]->IsUndefined() ? -1 : args[0]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
-          return ARG0->IsNumber() || ARG0->IsUndefined();
+          return args[0]->IsNumber() || args[0]->IsUndefined();
         }
 
         bool
@@ -1194,17 +1182,17 @@ class HDB : public TCWrap {
 
       public:
         static bool checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || NOU(ARG0)) &&
-                 (ARG1->IsNumber() || NOU(ARG1)) &&
-                 (ARG2->IsNumber() || NOU(ARG2)) &&
-                 (ARG3->IsNumber() || NOU(ARG3));
+          return (args[0]->IsNumber() || NOU(args[0])) &&
+                 (args[1]->IsNumber() || NOU(args[1])) &&
+                 (args[2]->IsNumber() || NOU(args[2])) &&
+                 (args[3]->IsNumber() || NOU(args[3]));
         }
 
         TuneData (const Arguments& args) : ArgsData(args) {
-          bnum = NOU(ARG0) ? -1 : ARG0->IntegerValue();
-          apow = NOU(ARG1) ? -1 : ARG1->Int32Value();
-          fpow = NOU(ARG2) ? -1 : ARG2->Int32Value();
-          opts = NOU(ARG3) ? UINT8_MAX : ARG3->Int32Value();
+          bnum = NOU(args[0]) ? -1 : args[0]->IntegerValue();
+          apow = NOU(args[1]) ? -1 : args[1]->Int32Value();
+          fpow = NOU(args[2]) ? -1 : args[2]->Int32Value();
+          opts = NOU(args[3]) ? UINT8_MAX : args[3]->Int32Value();
         }
 
         bool run () {
@@ -1224,13 +1212,13 @@ class HDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
-          omode = NOU(ARG1) ? HDBOREADER : ARG1->Int32Value();
+          omode = NOU(args[1]) ? HDBOREADER : args[1]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (NOU(ARG1) || ARG1->IsNumber());
+            (NOU(args[1]) || args[1]->IsNumber());
         }
 
         bool
@@ -1365,7 +1353,7 @@ class HDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG4), ArgsData(args) {}
+          : OptimizeData(args), AsyncData(args[4]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -1562,21 +1550,21 @@ class BDB : public TCWrap {
 
       public:
         static bool checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || NOU(ARG0)) &&
-                 (ARG1->IsNumber() || NOU(ARG1)) &&
-                 (ARG2->IsNumber() || NOU(ARG2)) &&
-                 (ARG3->IsNumber() || NOU(ARG3)) &&
-                 (ARG4->IsNumber() || NOU(ARG4)) &&
-                 (ARG5->IsNumber() || NOU(ARG5));
+          return (args[0]->IsNumber() || NOU(args[0])) &&
+                 (args[1]->IsNumber() || NOU(args[1])) &&
+                 (args[2]->IsNumber() || NOU(args[2])) &&
+                 (args[3]->IsNumber() || NOU(args[3])) &&
+                 (args[4]->IsNumber() || NOU(args[4])) &&
+                 (args[5]->IsNumber() || NOU(args[5]));
         }
 
         TuneData (const Arguments& args) : ArgsData(args) {
-          lmemb = NOU(ARG0) ? -1 : ARG0->Int32Value();
-          nmemb = NOU(ARG1) ? -1 : ARG1->Int32Value();
-          bnum = NOU(ARG2) ? -1 : ARG2->IntegerValue();
-          apow = NOU(ARG3) ? -1 : ARG3->Int32Value();
-          fpow = NOU(ARG4) ? -1 : ARG4->Int32Value();
-          opts = NOU(ARG5) ? UINT8_MAX : ARG5->Int32Value();
+          lmemb = NOU(args[0]) ? -1 : args[0]->Int32Value();
+          nmemb = NOU(args[1]) ? -1 : args[1]->Int32Value();
+          bnum = NOU(args[2]) ? -1 : args[2]->IntegerValue();
+          apow = NOU(args[3]) ? -1 : args[3]->Int32Value();
+          fpow = NOU(args[4]) ? -1 : args[4]->Int32Value();
+          opts = NOU(args[5]) ? UINT8_MAX : args[5]->Int32Value();
         }
 
         bool run () {
@@ -1597,14 +1585,14 @@ class BDB : public TCWrap {
 
       public:
         SetcacheData (const Arguments& args) : ArgsData(args) {
-          lcnum = ARG0->IsUndefined() ? -1 : ARG0->Int32Value();
-          ncnum = ARG1->IsUndefined() ? -1 : ARG1->Int32Value();
+          lcnum = args[0]->IsUndefined() ? -1 : args[0]->Int32Value();
+          ncnum = args[1]->IsUndefined() ? -1 : args[1]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || ARG0->IsUndefined()) &&
-                 (ARG1->IsNumber() || ARG1->IsUndefined());
+          return (args[0]->IsNumber() || args[0]->IsUndefined()) &&
+                 (args[1]->IsNumber() || args[1]->IsUndefined());
         }
 
         bool
@@ -1637,13 +1625,13 @@ class BDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
-          omode = NOU(ARG1) ? BDBOREADER : ARG1->Int32Value();
+          omode = NOU(args[1]) ? BDBOREADER : args[1]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (NOU(ARG1) || ARG1->IsNumber());
+            (NOU(args[1]) || args[1]->IsNumber());
         }
 
         bool
@@ -1765,18 +1753,18 @@ class BDB : public TCWrap {
       public:
         static bool
         checkArgs (const Arguments& args) {
-          return (NOU(ARG1) || ARG1->IsBoolean()) &&
-                 (NOU(ARG3) || ARG3->IsBoolean()) &&
-                 (NOU(ARG4) || ARG4->IsNumber());
+          return (NOU(args[1]) || args[1]->IsBoolean()) &&
+                 (NOU(args[3]) || args[3]->IsBoolean()) &&
+                 (NOU(args[4]) || args[4]->IsNumber());
         }
 
         RangeData (const Arguments& args) 
-            : bkbuf(ARG0), ekbuf(ARG2), ArgsData(args) {
-          bksiz = ARG0->IsNull() ? -1 : bkbuf.length();
-          binc = ARG1->BooleanValue();
-          eksiz = ARG2->IsNull() ? -1 : ekbuf.length();
-          einc = ARG3->BooleanValue();
-          max = NOU(ARG4) ? -1 : ARG4->Int32Value();
+            : bkbuf(args[0]), ekbuf(args[2]), ArgsData(args) {
+          bksiz = args[0]->IsNull() ? -1 : bkbuf.length();
+          binc = args[1]->BooleanValue();
+          eksiz = args[2]->IsNull() ? -1 : ekbuf.length();
+          einc = args[3]->BooleanValue();
+          max = NOU(args[4]) ? -1 : args[4]->Int32Value();
         }
 
         ~RangeData () {
@@ -1853,7 +1841,7 @@ class BDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG6), ArgsData(args) {}
+          : OptimizeData(args), AsyncData(args[6]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -1976,10 +1964,10 @@ class CUR : TCWrap {
     New (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 1 ||
-          !BDB::Tmpl->HasInstance(ARG0)) {
+          !BDB::Tmpl->HasInstance(args[0])) {
         return THROW_BAD_ARGS;
       }
-      TCBDB *bdb = ObjectWrap::Unwrap<BDB>(Local<Object>::Cast(ARG0))->bdb;
+      TCBDB *bdb = ObjectWrap::Unwrap<BDB>(Local<Object>::Cast(args[0]))->bdb;
       (new CUR(bdb))->Wrap(THIS);
       return THIS;
     }
@@ -2324,13 +2312,13 @@ class FDB : public TCWrap {
 
       public:
         static bool checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || NOU(ARG0)) &&
-                 (ARG1->IsNumber() || NOU(ARG1));
+          return (args[0]->IsNumber() || NOU(args[0])) &&
+                 (args[1]->IsNumber() || NOU(args[1]));
         }
 
         TuneData (const Arguments& args) : ArgsData(args) {
-          width = NOU(ARG0) ? -1 : ARG0->Int32Value();
-          limsiz = NOU(ARG1) ? -1 : ARG1->IntegerValue();
+          width = NOU(args[0]) ? -1 : args[0]->Int32Value();
+          limsiz = NOU(args[1]) ? -1 : args[1]->IntegerValue();
         }
 
         bool run () {
@@ -2350,13 +2338,13 @@ class FDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
-          omode = NOU(ARG1) ? FDBOREADER : ARG1->Int32Value();
+          omode = NOU(args[1]) ? FDBOREADER : args[1]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (NOU(ARG1) || ARG1->IsNumber());
+            (NOU(args[1]) || args[1]->IsNumber());
         }
 
         bool
@@ -2452,11 +2440,11 @@ class FDB : public TCWrap {
       public:
         static bool
         checkArgs (const Arguments& args) {
-          return NOU(ARG1) || ARG1->IsNumber();
+          return NOU(args[1]) || args[1]->IsNumber();
         }
 
         RangeData (const Arguments& args) : GetlistData(args), ArgsData(args) {
-          max = NOU(ARG1) ? -1 : ARG1->Int32Value();
+          max = NOU(args[1]) ? -1 : args[1]->Int32Value();
         }
 
         bool
@@ -2514,7 +2502,7 @@ class FDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG2), ArgsData(args) {}
+          : OptimizeData(args), AsyncData(args[2]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -2710,17 +2698,17 @@ class TDB : public TCWrap {
 
       public:
         static bool checkArgs (const Arguments& args) {
-          return (ARG0->IsNumber() || NOU(ARG0)) &&
-                 (ARG1->IsNumber() || NOU(ARG1)) &&
-                 (ARG2->IsNumber() || NOU(ARG2)) &&
-                 (ARG3->IsNumber() || NOU(ARG3));
+          return (args[0]->IsNumber() || NOU(args[0])) &&
+                 (args[1]->IsNumber() || NOU(args[1])) &&
+                 (args[2]->IsNumber() || NOU(args[2])) &&
+                 (args[3]->IsNumber() || NOU(args[3]));
         }
 
         TuneData (const Arguments& args) : ArgsData(args) {
-          bnum = NOU(ARG0) ? -1 : ARG0->IntegerValue();
-          apow = NOU(ARG1) ? -1 : ARG1->Int32Value();
-          fpow = NOU(ARG2) ? -1 : ARG2->Int32Value();
-          opts = NOU(ARG3) ? 0 : ARG3->Int32Value();
+          bnum = NOU(args[0]) ? -1 : args[0]->IntegerValue();
+          apow = NOU(args[1]) ? -1 : args[1]->Int32Value();
+          fpow = NOU(args[2]) ? -1 : args[2]->Int32Value();
+          opts = NOU(args[3]) ? 0 : args[3]->Int32Value();
         }
 
         bool run () {
@@ -2742,16 +2730,16 @@ class TDB : public TCWrap {
 
       public:
         SetcacheData (const Arguments& args) : ArgsData(args) {
-          rcnum = NOU(ARG0) ? -1 : ARG0->Int32Value();
-          lcnum = NOU(ARG1) ? -1 : ARG0->Int32Value();
-          ncnum = NOU(ARG2) ? -1 : ARG0->Int32Value();
+          rcnum = NOU(args[0]) ? -1 : args[0]->Int32Value();
+          lcnum = NOU(args[1]) ? -1 : args[0]->Int32Value();
+          ncnum = NOU(args[2]) ? -1 : args[0]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
-          return (NOU(ARG0) || ARG0->IsNumber()) &&
-                 (NOU(ARG1) || ARG1->IsNumber()) &&
-                 (NOU(ARG2) || ARG2->IsNumber());
+          return (NOU(args[0]) || args[0]->IsNumber()) &&
+                 (NOU(args[1]) || args[1]->IsNumber()) &&
+                 (NOU(args[2]) || args[2]->IsNumber());
         }
 
         bool
@@ -2784,13 +2772,13 @@ class TDB : public TCWrap {
 
       public:
         OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
-          omode = NOU(ARG1) ? TDBOREADER : ARG1->Int32Value();
+          omode = NOU(args[1]) ? TDBOREADER : args[1]->Int32Value();
         }
 
         static bool
         checkArgs (const Arguments& args) {
           return FilenameData::checkArgs(args) &&
-            (NOU(ARG1) || ARG1->IsNumber());
+            (NOU(args[1]) || args[1]->IsNumber());
         }
 
         bool
@@ -2834,7 +2822,7 @@ class TDB : public TCWrap {
         }
 
         static bool checkArgs (const Arguments& args) {
-          return ARG1->IsObject();
+          return args[1]->IsObject();
         }
 
         bool run () {
@@ -2847,7 +2835,7 @@ class TDB : public TCWrap {
     class PutAsyncData : public PutData, public AsyncData {
       public:
         PutAsyncData (const Arguments& args)
-          : PutData(args), AsyncData(ARG2), ArgsData(args) {}
+          : PutData(args), AsyncData(args[2]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Put)
@@ -2870,7 +2858,7 @@ class TDB : public TCWrap {
     class PutkeepAsyncData : public PutkeepData, public AsyncData {
       public:
         PutkeepAsyncData (const Arguments& args)
-          : PutkeepData(args), AsyncData(ARG2), ArgsData(args) {}
+          : PutkeepData(args), AsyncData(args[2]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Putkeep)
@@ -2893,7 +2881,7 @@ class TDB : public TCWrap {
     class PutcatAsyncData : public PutcatData, public AsyncData {
       public:
         PutcatAsyncData (const Arguments& args)
-          : PutcatData(args), AsyncData(ARG2), ArgsData(args) {}
+          : PutcatData(args), AsyncData(args[2]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Putcat)
@@ -2937,7 +2925,7 @@ class TDB : public TCWrap {
     class GetAsyncData : public GetData, public AsyncData {
       public:
         GetAsyncData (const Arguments& args)
-          : GetData(args), AsyncData(ARG1), ArgsData(args) {}
+          : GetData(args), AsyncData(args[1]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC2(Get)
@@ -3009,7 +2997,7 @@ class TDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG4) {}
+          : OptimizeData(args), AsyncData(args[4]) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -3077,12 +3065,12 @@ class TDB : public TCWrap {
         int type;
 
       public:
-        SetindexData (const Arguments& args) : name(ARG0), ArgsData(args) {
-          type = ARG1->Int32Value();
+        SetindexData (const Arguments& args) : name(args[0]), ArgsData(args) {
+          type = args[1]->Int32Value();
         }
 
         static bool checkArgs (const Arguments& args) {
-          return ARG0->IsString() && ARG1->IsNumber();
+          return args[0]->IsString() && args[1]->IsNumber();
         }
 
         bool run () {
@@ -3095,7 +3083,7 @@ class TDB : public TCWrap {
     class SetindexAsyncData : public SetindexData, public AsyncData {
       public:
         SetindexAsyncData (const Arguments& args)
-          : AsyncData(ARG2), SetindexData(args), ArgsData(args) {}
+          : AsyncData(args[2]), SetindexData(args), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Setindex)
@@ -3194,10 +3182,10 @@ class QRY : TCWrap {
     New (const Arguments& args) {
       HandleScope scope;
       if (args.Length() < 1 ||
-          !TDB::Tmpl->HasInstance(ARG0)) {
+          !TDB::Tmpl->HasInstance(args[0])) {
         return THROW_BAD_ARGS;
       }
-      TCTDB *db = ObjectWrap::Unwrap<TDB>(Local<Object>::Cast(ARG0))->tdb;
+      TCTDB *db = ObjectWrap::Unwrap<TDB>(Local<Object>::Cast(args[0]))->tdb;
       (new QRY(db))->Wrap(THIS);
       return THIS;
     }
@@ -3205,41 +3193,41 @@ class QRY : TCWrap {
     static Handle<Value>
     Addcond (const Arguments& args) {
       HandleScope scope;
-      if (!ARG1->IsNumber()) {
+      if (!args[1]->IsNumber()) {
         return THROW_BAD_ARGS;
       }
       tctdbqryaddcond(
           Backend(THIS),
-          *String::Utf8Value(ARG0),
-          ARG1->Int32Value(),
-          *String::Utf8Value(ARG2));
+          *String::Utf8Value(args[0]),
+          args[1]->Int32Value(),
+          *String::Utf8Value(args[2]));
       return Undefined();
     }
 
     static Handle<Value>
     Setorder (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG1->IsNumber() || NOU(ARG1))) {
+      if (!(args[1]->IsNumber() || NOU(args[1]))) {
         return THROW_BAD_ARGS;
       }
       tctdbqrysetorder(
           Backend(THIS),
-          *String::Utf8Value(ARG0),
-          NOU(ARG1) ? TDBQOSTRASC : ARG1->Int32Value());
+          *String::Utf8Value(args[0]),
+          NOU(args[1]) ? TDBQOSTRASC : args[1]->Int32Value());
       return Undefined();
     }
 
     static Handle<Value>
     Setlimit (const Arguments& args) {
       HandleScope scope;
-      if (!(ARG0->IsNumber() || NOU(ARG0)) ||
-          !(ARG1->IsNumber() || NOU(ARG1))) {
+      if (!(args[0]->IsNumber() || NOU(args[0])) ||
+          !(args[1]->IsNumber() || NOU(args[1]))) {
         return THROW_BAD_ARGS;
       }
       tctdbqrysetlimit(
           Backend(THIS),
-          NOU(ARG1) ? -1 : ARG0->Int32Value(),
-          NOU(ARG1) ? -1 : ARG1->Int32Value());
+          NOU(args[1]) ? -1 : args[0]->Int32Value(),
+          NOU(args[1]) ? -1 : args[1]->Int32Value());
       return Undefined();
     }
 
@@ -3274,7 +3262,7 @@ class QRY : TCWrap {
     class SearchAsyncData : public SearchData, public AsyncData {
       public:
         SearchAsyncData (const Arguments& args)
-          : SearchData(args), AsyncData(ARG0), ArgsData(args) {}
+          : SearchData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC2(Search)
@@ -3297,7 +3285,7 @@ class QRY : TCWrap {
     class SearchoutAsyncData : public SearchoutData, public AsyncData {
       public:
         SearchoutAsyncData (const Arguments& args)
-          : SearchoutData(args), AsyncData(ARG0), ArgsData(args) {}
+          : SearchoutData(args), AsyncData(args[0]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Searchout)
@@ -3322,7 +3310,7 @@ class QRY : TCWrap {
 
       public:
         MetasearchData (const Arguments& args) : ArgsData(args) {
-          Local<Array> others = Local<Array>::Cast(ARG0);
+          Local<Array> others = Local<Array>::Cast(args[0]);
           int num = others->Length();
           qrys = static_cast<TDBQRY **>(tcmalloc(sizeof(*qrys) * (num+1)));
           qnum = 0;
@@ -3334,7 +3322,7 @@ class QRY : TCWrap {
               qrys[qnum++] = Backend(oqry);
             }
           }
-          type = NOU(ARG1) ? TDBMSUNION : ARG1->Int32Value();
+          type = NOU(args[1]) ? TDBMSUNION : args[1]->Int32Value();
         }
 
         ~MetasearchData () {
@@ -3348,8 +3336,8 @@ class QRY : TCWrap {
         }
 
         static bool checkArgs (const Arguments& args) {
-          return ARG0->IsArray() &&
-                 (ARG1->IsNumber() || NOU(ARG1));
+          return args[0]->IsArray() &&
+                 (args[1]->IsNumber() || NOU(args[1]));
         }
 
         Handle<Value> returnValue () {
@@ -3363,7 +3351,7 @@ class QRY : TCWrap {
     class MetasearchAsyncData : public MetasearchData, public AsyncData {
       public:
         MetasearchAsyncData (const Arguments& args)
-          : MetasearchData(args), AsyncData(ARG2), ArgsData(args) {}
+          : MetasearchData(args), AsyncData(args[2]), ArgsData(args) {}
     };
 
     DEFINE_ASYNC2(Metasearch)
@@ -3446,7 +3434,7 @@ class ADB : TCWrap {
     }
 
     int Ecode () {
-      // TODO: return proper ecode
+      // TODO: return proper ecode (maybe impossible?)
       return TCEMISC;
     }
 
