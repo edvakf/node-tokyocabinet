@@ -15,26 +15,26 @@ setTimeout(next_sample, 10);
 
 var put_count = 100000;
 
-var syncdb;
-var asyncdb;
+var hdb;
+var hdb;
 
 samples.push(function() {
   sys.puts('sync');
 
-  syncdb = new TC.HDB;
-  if (!syncdb.open('casket1.tch', TC.HDB.OWRITER | TC.HDB.OCREAT)) {
-    sys.error(syncdb.errmsg());
+  hdb = new TC.HDB;
+  if (!hdb.open('casket1.tch', TC.HDB.OWRITER | TC.HDB.OCREAT)) {
+    sys.error(hdb.errmsg());
   }
 
   var t = Date.now();
   for (var i = 0; i < put_count; i++) {
-    if (!syncdb.put('key' + i, 'val' + i + ' 0123456789')) {
+    if (!hdb.put('key' + i, 'val' + i + ' 0123456789')) {
       sys.error(hdb.errmsg());
     }
   }
   sys.puts(Date.now() - t);
-  for (var i = 0; i < 20; i++) {
-    var val = syncdb.get('key' + i);
+  for (var i = 0; i < 10; i++) {
+    var val = hdb.get('key' + i);
     if (!val) {
       sys.error(hdb.errmsg());
     } else {
@@ -48,33 +48,76 @@ samples.push(function() {
 samples.push(function() {
   sys.puts('async');
 
-  var asyncdb = new TC.HDB;
+  var hdb = new TC.HDB;
   // this line is necessary for an async operation
-  if (!asyncdb.setmutex()) throw asyncdb.errmsg();
+  if (!hdb.setmutex()) throw hdb.errmsg();
 
-  asyncdb.openAsync('casket2.tch', TC.HDB.OWRITER | TC.HDB.OCREAT, function(e) {
-    if (e) sys.error(asyncdb.errmsg(e));
+  hdb.openAsync('casket2.tch', TC.HDB.OWRITER | TC.HDB.OCREAT, function(e) {
+    if (e) sys.error(hdb.errmsg(e));
 
     var t = Date.now();
     var n = put_count;
     for (var i = 0; i < put_count; i++) {
-      asyncdb.putAsync('key' + i, 'val' + i + ' 0123456789', function(e) {
-        if (e) sys.error(asyncdb.errmsg(e));
+      hdb.putAsync('key' + i, 'val' + i + ' 0123456789', function(e) {
+        if (e) sys.error(hdb.errmsg(e));
         if (--n === 0) {
           sys.puts(Date.now() - t);
 
-          for (var i = 0; i < 20; i++) {
-            asyncdb.getAsync('key' + i, function(e, val) {
+          n = 10;
+          for (var i = 0; i < 10; i++) {
+            hdb.getAsync('key' + i, function(e, val) {
               if (e) {
                 sys.puts(hdb.errmsg(e));
               } else {
                 sys.puts(val);
+              }
+              if (--n === 0) {
+                next_sample();
               }
             });
           }
         }
       });
     }
+  });
+});
+
+
+samples.push(function() {
+  sys.puts('async');
+
+  var hdb = new TC.HDB;
+  // this line is necessary for an async operation
+  if (!hdb.setmutex()) throw hdb.errmsg();
+
+  hdb.openAsync('casket3.tch', TC.HDB.OWRITER | TC.HDB.OCREAT, function(e) {
+    if (e) sys.error(hdb.errmsg(e));
+
+    var t = Date.now();
+    var i = 0;
+    (function func() {
+      hdb.putAsync('key' + i, 'val' + i + ' 0123456789', function(e) {
+        if (++i < put_count) {
+          func();
+        } else {
+          sys.puts(Date.now() - t);
+
+          var n = 10;
+          for (var j = 0; j < 10; j++) {
+            hdb.getAsync('key' + j, function(e, val) {
+              if (e) {
+                sys.puts(hdb.errmsg(e));
+              } else {
+                sys.puts(val);
+              }
+              if (--n === 0) {
+                next_sample();
+              }
+            });
+          }
+        }
+      });
+    }());
   });
 });
 
