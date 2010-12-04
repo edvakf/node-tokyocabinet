@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <assert.h>
-#include <iostream>
 
 #define THROW_BAD_ARGS \
   ThrowException(Exception::TypeError(String::New("Bad arguments")))
@@ -262,7 +261,7 @@ class TCWrap : public ObjectWrap {
     virtual uint64_t Fsiz () { assert(false); }
     virtual uint64_t Size () { assert(false); } // for ADB
     virtual bool Setindex (const char* name, int type) { assert(false); } // for TDB
-    virtual TCLIST * Misc (char *name, TCLIST *targs) { assert(false); } // for ADB
+    virtual TCLIST * Misc (const char *name, TCLIST *targs) { assert(false); } // for ADB
     // for BDB Cursor
     virtual bool First () { assert(false); } // for CUR
     virtual bool Last () { assert(false); } // for CUR
@@ -285,7 +284,7 @@ class TCWrap : public ObjectWrap {
 
         /* This is defined only because AsyncData(Handle<Value>) constructor 
          * gives compile error without this, but in fact AsyncData does not
-         * use it. See OpenAsyncData or GetData, for example. */
+         * use it. */
         ArgsData () {
           assert(false);
         }
@@ -493,7 +492,8 @@ class TCWrap : public ObjectWrap {
         int vsiz;
 
       public:
-        PutData (const Arguments& args) : vbuf(args[1]), KeyData(args) {
+        PutData (const Arguments& args) 
+            : vbuf(args[1]), KeyData(args), ArgsData(args) {
           vsiz = vbuf.length();
         }
 
@@ -511,7 +511,7 @@ class TCWrap : public ObjectWrap {
 
     class PutkeepData : public PutData {
       public:
-        PutkeepData (const Arguments& args) : PutData(args) {}
+        PutkeepData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -527,7 +527,7 @@ class TCWrap : public ObjectWrap {
 
     class PutcatData : public PutData {
       public:
-        PutcatData (const Arguments& args) : PutData(args) {}
+        PutcatData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -543,7 +543,7 @@ class TCWrap : public ObjectWrap {
 
     class PutasyncData : public PutData {
       public:
-        PutasyncData (const Arguments& args) : PutData(args) {}
+        PutasyncData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -559,7 +559,7 @@ class TCWrap : public ObjectWrap {
 
     class PutdupData : public PutData {
       public:
-        PutdupData (const Arguments& args) : PutData(args) {}
+        PutdupData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -578,7 +578,7 @@ class TCWrap : public ObjectWrap {
         TCLIST *list;
 
       public:
-        PutlistData (const Arguments& args) : KeyData(args) {
+        PutlistData (const Arguments& args) : KeyData(args), ArgsData(args) {
           HandleScope scope;
           list = arytotclist(Handle<Array>::Cast(ARG0));
         }
@@ -618,7 +618,7 @@ class TCWrap : public ObjectWrap {
 
     class OutData : public KeyData {
       public:
-        OutData (const Arguments& args) : KeyData(args) {}
+        OutData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -634,7 +634,7 @@ class TCWrap : public ObjectWrap {
 
     class OutlistData : public KeyData {
       public:
-        OutlistData (const Arguments& args) : KeyData(args) {}
+        OutlistData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -670,7 +670,7 @@ class TCWrap : public ObjectWrap {
         TCLIST *list;
 
       public:
-        GetlistData (const Arguments& args) : KeyData(args) {}
+        GetlistData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         ~GetlistData () {
           tclistdel(list);
@@ -700,7 +700,7 @@ class TCWrap : public ObjectWrap {
         int max;
 
       public:
-        FwmkeysData (const Arguments& args) : GetlistData(args) {
+        FwmkeysData (const Arguments& args) : GetlistData(args), ArgsData(args) {
           max = args[1]->Int32Value();
         }
 
@@ -727,7 +727,7 @@ class TCWrap : public ObjectWrap {
         int vnum;
 
       public:
-        VnumData (const Arguments& args) : KeyData(args) {}
+        VnumData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -753,7 +753,7 @@ class TCWrap : public ObjectWrap {
         int vsiz;
 
       public:
-        VsizData (const Arguments& args) : KeyData(args) {}
+        VsizData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -779,7 +779,7 @@ class TCWrap : public ObjectWrap {
         int num;
 
       public:
-        AddintData (const Arguments& args) : KeyData(args) {
+        AddintData (const Arguments& args) : KeyData(args), ArgsData(args) {
           num = args[1]->Int32Value();
         }
 
@@ -824,7 +824,7 @@ class TCWrap : public ObjectWrap {
 
     class IternextData : public ValueData {
       public:
-        IternextData (const Arguments& args) {}
+        IternextData (const Arguments& args) : ArgsData(args){}
 
         bool run () {
           vbuf = tcw->Iternext(&vsiz);
@@ -843,7 +843,7 @@ class TCWrap : public ObjectWrap {
         double num;
 
       public:
-        AdddoubleData (const Arguments& args) : KeyData(args) {
+        AdddoubleData (const Arguments& args) : KeyData(args), ArgsData(args) {
           num = args[1]->NumberValue();
         }
 
@@ -903,7 +903,7 @@ class TCWrap : public ObjectWrap {
 
     class CopyData : public FilenameData {
       public:
-        CopyData (const Arguments& args) : FilenameData(args) {}
+        CopyData (const Arguments& args) : FilenameData(args), ArgsData(args) {}
 
         bool
         run () {
@@ -1005,7 +1005,7 @@ class TCWrap : public ObjectWrap {
         }
     };
 
-    class FsizData : public ArgsData {
+    class FsizData : public virtual ArgsData {
       protected:
         uint64_t fsiz;
 
@@ -1223,7 +1223,7 @@ class HDB : public TCWrap {
         int omode;
 
       public:
-        OpenData (const Arguments& args) : FilenameData(args) {
+        OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
           omode = NOU(ARG1) ? HDBOREADER : ARG1->Int32Value();
         }
 
@@ -1353,7 +1353,7 @@ class HDB : public TCWrap {
 
     class OptimizeData : public TuneData {
       public:
-        OptimizeData (const Arguments& args) : TuneData(args) {}
+        OptimizeData (const Arguments& args) : TuneData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Optimize(bnum, apow, fpow, opts);
@@ -1365,7 +1365,7 @@ class HDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG4) {}
+          : OptimizeData(args), AsyncData(ARG4), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -1636,7 +1636,7 @@ class BDB : public TCWrap {
         int omode;
 
       public:
-        OpenData (const Arguments& args) : FilenameData(args) {
+        OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
           omode = NOU(ARG1) ? BDBOREADER : ARG1->Int32Value();
         }
 
@@ -1841,7 +1841,7 @@ class BDB : public TCWrap {
 
     class OptimizeData : public TuneData {
       public:
-        OptimizeData (const Arguments& args) : TuneData(args) {}
+        OptimizeData (const Arguments& args) : TuneData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Optimize(lmemb, nmemb, bnum, apow, fpow, opts);
@@ -1853,7 +1853,7 @@ class BDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG6) {}
+          : OptimizeData(args), AsyncData(ARG6), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -1994,7 +1994,7 @@ class CUR : TCWrap {
 
     class FirstData : public virtual ArgsData {
       public:
-        FirstData(const Arguments& args) : ArgsData() {}
+        FirstData(const Arguments& args) : ArgsData(args) {}
 
         bool run () {
           return tcw->First();
@@ -2040,7 +2040,7 @@ class CUR : TCWrap {
 
     class JumpData : public KeyData {
       public:
-        JumpData(const Arguments& args) : KeyData(args) {}
+        JumpData(const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Jump(*kbuf, ksiz);
@@ -2112,7 +2112,7 @@ class CUR : TCWrap {
         int cpmode;
 
       public:
-        PutData(const Arguments& args) : KeyData(args) {
+        PutData(const Arguments& args) : KeyData(args), ArgsData(args) {
           cpmode = NOU(args[1]) ?
             BDBCPCURRENT : args[1]->Int32Value();
         }
@@ -2165,7 +2165,7 @@ class CUR : TCWrap {
 
     class KeyData : public ValueData {
       public:
-        KeyData(const Arguments& args) {}
+        KeyData(const Arguments& args) : ArgsData(args) {}
 
         bool run () {
           vbuf = tcw->Key(&vsiz);
@@ -2189,7 +2189,7 @@ class CUR : TCWrap {
 
     class ValData : public ValueData {
       public:
-        ValData(const Arguments& args) {}
+        ValData(const Arguments& args) : ArgsData(args) {}
 
         bool run () {
           vbuf = tcw->Val(&vsiz);
@@ -2349,7 +2349,7 @@ class FDB : public TCWrap {
         int omode;
 
       public:
-        OpenData (const Arguments& args) : FilenameData(args) {
+        OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
           omode = NOU(ARG1) ? FDBOREADER : ARG1->Int32Value();
         }
 
@@ -2455,7 +2455,7 @@ class FDB : public TCWrap {
           return NOU(ARG1) || ARG1->IsNumber();
         }
 
-        RangeData (const Arguments& args) : GetlistData(args) {
+        RangeData (const Arguments& args) : GetlistData(args), ArgsData(args) {
           max = NOU(ARG1) ? -1 : ARG1->Int32Value();
         }
 
@@ -2502,7 +2502,7 @@ class FDB : public TCWrap {
 
     class OptimizeData : public TuneData {
       public:
-        OptimizeData (const Arguments& args) : TuneData(args) {}
+        OptimizeData (const Arguments& args) : TuneData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Optimize(width, limsiz);
@@ -2514,7 +2514,7 @@ class FDB : public TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args)
-          : OptimizeData(args), AsyncData(ARG2) {}
+          : OptimizeData(args), AsyncData(ARG2), ArgsData(args) {}
     };
 
     DEFINE_ASYNC(Optimize)
@@ -2783,7 +2783,7 @@ class TDB : public TCWrap {
         int omode;
 
       public:
-        OpenData (const Arguments& args) : FilenameData(args) {
+        OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {
           omode = NOU(ARG1) ? TDBOREADER : ARG1->Int32Value();
         }
 
@@ -2825,7 +2825,7 @@ class TDB : public TCWrap {
         TCMAP *map;
 
       public:
-        PutData (const Arguments& args) : KeyData(args) {
+        PutData (const Arguments& args) : KeyData(args), ArgsData(args) {
           map = objtotcmap(Local<Object>::Cast(args[1]));
         }
 
@@ -2858,7 +2858,7 @@ class TDB : public TCWrap {
 
     class PutkeepData : public PutData {
       public:
-        PutkeepData (const Arguments& args) : PutData(args) {}
+        PutkeepData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Putkeep(*kbuf, ksiz, map);
@@ -2881,7 +2881,7 @@ class TDB : public TCWrap {
 
     class PutcatData : public PutData {
       public:
-        PutcatData (const Arguments& args) : PutData(args) {}
+        PutcatData (const Arguments& args) : PutData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Putcat(*kbuf, ksiz, map);
@@ -2914,7 +2914,7 @@ class TDB : public TCWrap {
         TCMAP *map;
 
       public:
-        GetData (const Arguments& args) : KeyData(args) {}
+        GetData (const Arguments& args) : KeyData(args), ArgsData(args) {}
 
         ~GetData () {
           tcmapdel(map);
@@ -3456,7 +3456,7 @@ class ADB : TCWrap {
 
     class OpenData : public FilenameData {
       public:
-        OpenData (const Arguments& args) : FilenameData(args) {}
+        OpenData (const Arguments& args) : FilenameData(args), ArgsData(args) {}
 
         bool run () {
           return tcw->Open(*path);
@@ -3590,7 +3590,7 @@ class ADB : TCWrap {
     class OptimizeAsyncData : public OptimizeData, public AsyncData {
       public:
         OptimizeAsyncData (const Arguments& args) : 
-          OptimizeData(args), AsyncData(args[1]) {}
+          OptimizeData(args), AsyncData(args[1]), ArgsData(args) {}
     };
 
     DEFINE_SYNC(Optimize)
@@ -3621,15 +3621,15 @@ class ADB : TCWrap {
       return tcadbtrancommit(adb);
     }
 
-    DEFINE_SYNC(Trancommit);
-    DEFINE_ASYNC(Trancommit);
+    DEFINE_SYNC(Trancommit)
+    DEFINE_ASYNC(Trancommit)
 
     bool Tranabort () {
       return tcadbtranabort(adb);
     }
 
-    DEFINE_SYNC(Tranabort);
-    DEFINE_ASYNC(Tranabort);
+    DEFINE_SYNC(Tranabort)
+    DEFINE_ASYNC(Tranabort)
 
     const char * Path () {
       return tcadbpath(adb);
@@ -3649,7 +3649,7 @@ class ADB : TCWrap {
 
     class SizeData : public FsizData {
       public:
-        SizeData (const Arguments& args) : FsizData(args) {}
+        SizeData (const Arguments& args) : FsizData(args), ArgsData(args) {}
 
         bool run () {
           fsiz = tcw->Size();
@@ -3677,7 +3677,7 @@ class ADB : TCWrap {
 
         ~MiscData () {
           tclistdel(targs);
-          tclistdel(ret);
+          if (ret != NULL) tclistdel(ret);
         }
 
         static bool checkArgs (const Arguments& args) {
@@ -3699,7 +3699,7 @@ class ADB : TCWrap {
     class MiscAsyncData : public MiscData, public AsyncData {
       public:
         MiscAsyncData (const Arguments& args) : 
-          AsyncData(args[2]), MiscData(args) {}
+          AsyncData(args[2]), MiscData(args), ArgsData(args) {}
     };
 
     DEFINE_SYNC2(Misc)

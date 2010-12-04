@@ -1,10 +1,2 @@
-casket.tcb
-casket.tcf
-casket.tch
-casket.tct
-test/casket.tcb
-test/casket.tcf
-test/casket.tch
-test/casket.tct
 build/*
 .lock-wscript
