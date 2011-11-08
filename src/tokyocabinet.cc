@@ -1,4 +1,5 @@
 #include <node.h>
+#include <node_version.h>
 #include <tcutil.h>
 #include <tchdb.h>
 #include <tcbdb.h>
@@ -120,13 +121,22 @@ inline Local<Object> tcmaptoobj (TCMAP *map) {
     return Undefined();                                                       \
   }                                                                           \
 
+#if NODE_VERSION_AT_LEAST(0, 5, 4)
+#define DEFINE_ASYNC_EXEC(name)                                               \
+  static void                                                                 \
+  Exec##name (eio_req *req) {                                                 \
+    name##AsyncData *data = static_cast<name##AsyncData *>(req->data);        \
+    req->result = data->run() ? TCESUCCESS : data->ecode();                   \
+  }
+#else
 #define DEFINE_ASYNC_EXEC(name)                                               \
   static int                                                                  \
   Exec##name (eio_req *req) {                                                 \
     name##AsyncData *data = static_cast<name##AsyncData *>(req->data);        \
     req->result = data->run() ? TCESUCCESS : data->ecode();                   \
     return 0;                                                                 \
-  }                                                                           \
+  }
+#endif
 
 #define DEFINE_ASYNC_AFTER(name)                                              \
   static int                                                                  \
